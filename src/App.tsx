@@ -90,6 +90,9 @@ export default function App() {
   const [aiGuidelines, setAiGuidelines] = useState<string>('');
   const [aiSelectedExamId, setAiSelectedExamId] = useState<string>('');
 
+  // Delete confirmation state
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
   // Copy state
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -188,12 +191,12 @@ export default function App() {
   };
 
   const handleDeleteExam = async (id: string) => {
-    if (!confirm("Apakah Anda yakin ingin menghapus ujian ini?")) return;
     try {
       const res = await fetch(`/api/exams/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         setMessage({ text: "Ujian berhasil dihapus.", type: 'success' });
+        setDeleteConfirmId(null);
         fetchExams();
         setTimeout(() => setMessage(null), 4000);
       } else {
@@ -449,7 +452,7 @@ export default function App() {
                           <span className="hidden sm:inline">Edit</span>
                         </button>
                         <button
-                          onClick={() => handleDeleteExam(exam.id)}
+                          onClick={() => setDeleteConfirmId(exam.id)}
                           className="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors"
                           title="Hapus Ujian"
                         >
@@ -873,6 +876,39 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-base font-bold text-white mb-1">Hapus Ujian?</h3>
+              <p className="text-xs text-slate-400">
+                Tindakan ini tidak dapat dibatalkan. Ujian dan PIN yang terkait akan dihapus secara permanen.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteExam(deleteConfirmId)}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-semibold shadow transition-all"
+              >
+                Ya, Hapus
+              </button>
+            </div>
           </div>
         </div>
       )}
