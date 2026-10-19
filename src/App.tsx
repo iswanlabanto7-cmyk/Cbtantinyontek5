@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import {
   Shield,
   Key,
@@ -30,7 +31,13 @@ import {
   Radio,
   UserCheck,
   LogOut,
-  Layers
+  Layers,
+  QrCode,
+  Printer,
+  Download,
+  ScanLine,
+  Camera,
+  ExternalLink
 } from 'lucide-react';
 
 interface ExamItem {
@@ -61,6 +68,12 @@ export default function App() {
   // Modal State for Add / Edit
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingExam, setEditingExam] = useState<ExamItem | null>(null);
+
+  // Barcode / QR Code Modal State
+  const [barcodeModalExam, setBarcodeModalExam] = useState<ExamItem | null>(null);
+  const [barcodeType, setBarcodeType] = useState<'portal' | 'direct'>('portal');
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [isGeneratingQr, setIsGeneratingQr] = useState<boolean>(false);
 
   // Form state inside modal
   const [formData, setFormData] = useState<Partial<ExamItem>>({
@@ -100,6 +113,20 @@ export default function App() {
     fetchExams();
   }, []);
 
+  // Check URL parameters for direct exam access via scanned QR code (?examId=...)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const examIdParam = urlParams.get('examId');
+    if (examIdParam) {
+      setSelectedSimExamId(examIdParam);
+      setActiveTab('student-api');
+      setMessage({
+        text: `Barcode Ujian ${examIdParam} berhasil di-scan! Masukkan PIN Masuk untuk memulai ujian.`,
+        type: 'success'
+      });
+    }
+  }, []);
+
   const fetchExams = async () => {
     try {
       setLoading(true);
@@ -119,6 +146,39 @@ export default function App() {
       setLoading(false);
     }
   };
+
+  // Generate QR Code whenever barcodeModalExam or barcodeType changes
+  useEffect(() => {
+    if (!barcodeModalExam) return;
+
+    const generateCode = async () => {
+      try {
+        setIsGeneratingQr(true);
+        // If type is portal, point student to the exam portal with ?examId parameter
+        // If type is direct, point directly to Google Form URL
+        const targetUrl = barcodeType === 'portal'
+          ? `${window.location.origin}/?examId=${barcodeModalExam.id}`
+          : barcodeModalExam.googleFormUrl;
+
+        const url = await QRCode.toDataURL(targetUrl, {
+          width: 400,
+          margin: 2,
+          errorCorrectionLevel: 'H',
+          color: {
+            dark: '#020617', // slate-950
+            light: '#ffffff'
+          }
+        });
+        setQrDataUrl(url);
+      } catch (err) {
+        console.error("Failed to generate QR Code", err);
+      } finally {
+        setIsGeneratingQr(false);
+      }
+    };
+
+    generateCode();
+  }, [barcodeModalExam, barcodeType]);
 
   const formatAMPM = (dateString: string) => {
     if (!dateString) return '';
@@ -159,6 +219,11 @@ export default function App() {
     setEditingExam(exam);
     setFormData({ ...exam });
     setIsModalOpen(true);
+  };
+
+  const handleOpenBarcodeModal = (exam: ExamItem) => {
+    setBarcodeModalExam(exam);
+    setBarcodeType('portal');
   };
 
   const handleSaveExam = async (e: React.FormEvent) => {
@@ -231,6 +296,30 @@ export default function App() {
     }
   };
 
+  const handleSimulateScanBarcode = (examId: string) => {
+    setSelectedSimExamId(examId);
+    setSimActiveForm(false);
+    setSimResult(null);
+    setSimPinInput('');
+    setMessage({
+      text: `Barcode Ujian ${examId} berhasil di-scan siswa! Silakan masukkan PIN Masuk.`,
+      type: 'success'
+    });
+    setTimeout(() => setMessage(null), 5000);
+  };
+
+  const handleDownloadQr = () => {
+    if (!qrDataUrl || !barcodeModalExam) return;
+    const a = document.createElement('a');
+    a.href = qrDataUrl;
+    a.download = `Barcode-${barcodeModalExam.id}-${barcodeType}.png`;
+    a.click();
+  };
+
+  const handlePrintQrSheet = () => {
+    window.print();
+  };
+
   const handleGenerateGuidelines = async () => {
     const targetExam = exams.find(e => e.id === aiSelectedExamId) || exams[0];
     if (!targetExam) return;
@@ -259,11 +348,17 @@ export default function App() {
     }
   };
 
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2500);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300">
         <RefreshCw className="w-8 h-8 animate-spin text-emerald-500 mb-4" />
-        <p className="text-sm font-medium">Memuat Daftar Ujian & Google Form...</p>
+        <p className="text-sm font-medium">Memuat Daftar Ujian & Barcode...</p>
       </div>
     );
   }
@@ -273,14 +368,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex items-center justify-between gap-6">
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex items-center justify-between gap-6 print:hidden">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
             <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight text-white">Admin Ujian & Google Form</h1>
-            <p className="text-xs text-slate-400">Manajemen Link Google Form & 3 Jenis PIN (4 Digit Angka)</p>
+            <h1 className="text-lg font-bold tracking-tight text-white">Admin Ujian & Barcode Soal</h1>
+            <p className="text-xs text-slate-400">Penyaluran Soal Google Form Melalui Barcode / QR Code & 3 Jenis PIN</p>
           </div>
         </div>
 
@@ -296,10 +391,10 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 flex flex-col gap-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8 flex flex-col gap-8 print:p-0 print:max-w-none">
         {/* Notification Banner */}
         {message && (
-          <div className={`p-4 rounded-xl border flex items-center gap-3 text-sm ${
+          <div className={`p-4 rounded-xl border flex items-center gap-3 text-sm print:hidden ${
             message.type === 'success'
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
               : 'bg-red-500/10 border-red-500/30 text-red-300'
@@ -310,7 +405,7 @@ export default function App() {
         )}
 
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-800 print:hidden">
           <button
             onClick={() => setActiveTab('exams')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
@@ -320,7 +415,7 @@ export default function App() {
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>Daftar Ujian & PIN ({exams.length})</span>
+            <span>Daftar Ujian & Barcode ({exams.length})</span>
           </button>
 
           <button
@@ -332,7 +427,7 @@ export default function App() {
             }`}
           >
             <Smartphone className="w-4 h-4" />
-            <span>Simulasi & API Siswa</span>
+            <span>Scan Barcode & Simulasi Siswa</span>
           </button>
 
           <button
@@ -348,13 +443,13 @@ export default function App() {
           </button>
         </div>
 
-        {/* Tab 1: Daftar Ujian & 3 PIN Terpadu */}
+        {/* Tab 1: Daftar Ujian & Barcode */}
         {activeTab === 'exams' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-white">Daftar Sesi Ujian & Google Form</h2>
-                <p className="text-xs text-slate-400">Setiap ujian dilengkapi dengan Link Google Form, Jadwal (AM/PM), dan 3 Jenis PIN (masing-masing 4 digit angka).</p>
+                <h2 className="text-base font-semibold text-white">Daftar Sesi Ujian & Penyaluran Barcode</h2>
+                <p className="text-xs text-slate-400">Setiap ujian dilengkapi dengan Barcode / QR Code untuk discan siswa, Link Google Form, Jadwal (AM/PM), dan 3 Jenis PIN (4 digit).</p>
               </div>
             </div>
 
@@ -427,7 +522,7 @@ export default function App() {
 
                     {/* 3 PIN Badges (4-digit) & Actions */}
                     <div className="flex flex-col sm:flex-row items-center gap-4 w-full lg:w-auto justify-between lg:justify-end border-t lg:border-t-0 pt-4 lg:pt-0 border-slate-800">
-                      <div className="grid grid-cols-3 gap-3 text-center">
+                      <div className="grid grid-cols-3 gap-2.5 text-center">
                         <div className="bg-slate-950 px-3 py-2.5 rounded-xl border border-slate-800">
                           <span className="text-[10px] text-slate-500 block mb-0.5 font-medium">PIN Masuk</span>
                           <span className="text-xs font-mono font-bold text-emerald-400 tracking-wider">{exam.pinMasuk}</span>
@@ -442,7 +537,16 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      {/* Action buttons including Barcode button */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          onClick={() => handleOpenBarcodeModal(exam)}
+                          className="px-3 py-2.5 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+                          title="Tampilkan / Cetak Barcode Ujian"
+                        >
+                          <QrCode className="w-4 h-4" />
+                          <span>Barcode Soal</span>
+                        </button>
                         <button
                           onClick={() => handleOpenEditModal(exam)}
                           className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-medium flex items-center gap-1.5 transition-colors"
@@ -468,19 +572,24 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Simulasi & API Siswa */}
+        {/* Tab 2: Scan Barcode & Simulasi Siswa */}
         {activeTab === 'student-api' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Left: Student Simulator */}
+            {/* Left: Student Simulator with Barcode Scanner Integration */}
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                   <Smartphone className="w-4 h-4 text-emerald-400" />
-                  <span>Simulasi Aplikasi Siswa</span>
+                  <span>Simulasi Aplikasi Siswa (Hasil Scan Barcode)</span>
                 </h3>
                 <select
                   value={selectedSimExamId}
-                  onChange={(e) => setSelectedSimExamId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedSimExamId(e.target.value);
+                    setSimActiveForm(false);
+                    setSimResult(null);
+                    setSimPinInput('');
+                  }}
                   className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200"
                 >
                   {exams.map(ex => (
@@ -489,8 +598,29 @@ export default function App() {
                 </select>
               </div>
 
+              {/* Barcode Quick-Scan Simulator Banner */}
+              <div className="mb-6 p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                    <ScanLine className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-semibold text-white">Simulasi Scan Barcode di Kelas</h4>
+                    <p className="text-[11px] text-slate-400">Klik tombol scan untuk mensimulasikan siswa mengarahkan kamera HP ke barcode:</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSimulateScanBarcode(selectedSimExamId)}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Scan Barcode</span>
+                </button>
+              </div>
+
               {!simActiveForm ? (
-                <div className="flex-1 flex flex-col justify-center py-6">
+                <div className="flex-1 flex flex-col justify-center py-4">
                   {selectedSimExam && (
                     <div className="text-center max-w-sm mx-auto mb-6">
                       <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center text-emerald-400 mx-auto mb-3">
@@ -581,31 +711,55 @@ export default function App() {
               )}
             </div>
 
-            {/* Right: API Documentation */}
+            {/* Right: API Documentation for Barcode & Client Apps */}
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col">
               <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
                 <Code className="w-4 h-4 text-emerald-400" />
-                <span>API Endpoint untuk Aplikasi Siswa</span>
+                <span>Format URL Barcode & API Siswa</span>
               </h3>
 
               <p className="text-xs text-slate-400 mb-4">
-                Aplikasi klien siswa (Android/Web) dapat mengakses data ujian berdasarkan ID Ujian.
+                Saat siswa memindai Barcode / QR Code menggunakan kamera HP atau scanner aplikasi CBT, URL berikut yang dieksekusi:
               </p>
 
               <div className="space-y-4 flex-1">
                 <div>
-                  <span className="text-[11px] font-semibold text-slate-300 block mb-1">1. Ambil Data Ujian (GET)</span>
+                  <span className="text-[11px] font-semibold text-slate-300 block mb-1">1. URL Target Barcode Siswa</span>
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 overflow-x-auto flex items-center justify-between">
+                    <span className="truncate">{window.location.origin}/?examId={selectedSimExamId}</span>
+                    <button
+                      onClick={() => copyToClipboard(`${window.location.origin}/?examId=${selectedSimExamId}`, 'barcode-link')}
+                      className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors shrink-0 ml-2"
+                      title="Salin Link Barcode"
+                    >
+                      {copied === 'barcode-link' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-300 block mb-1">2. Endpoint Ambil Data Ujian (GET)</span>
                   <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 overflow-x-auto">
                     GET {window.location.origin}/api/student/exam?id={selectedSimExamId}
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-[11px] font-semibold text-slate-300 block mb-1">2. Verifikasi PIN Siswa (POST)</span>
+                  <span className="text-[11px] font-semibold text-slate-300 block mb-1">3. Verifikasi PIN Siswa (POST)</span>
                   <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-slate-300 overflow-x-auto">
                     <span className="text-purple-400">POST</span> {window.location.origin}/api/student/verify-pin<br/>
                     <span className="text-slate-500">{`{ "examId": "${selectedSimExamId}", "pin": "4821", "type": "masuk" }`}</span>
                   </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
+                  <h4 className="text-xs font-semibold text-slate-200 mb-2">Cara Kerja Penyaluran Soal via Barcode:</h4>
+                  <ol className="text-xs text-slate-400 space-y-1.5 list-decimal list-inside leading-relaxed">
+                    <li>Guru mencetak lembar barcode ujian atau menampilkan barcode di proyektor kelas.</li>
+                    <li>Siswa memindai barcode menggunakan kamera HP atau scanner aplikasi CBT.</li>
+                    <li>Aplikasi siswa langsung membuka halaman ujian dengan nama mapel dan jadwal yang sesuai.</li>
+                    <li>Siswa memasukkan <strong>PIN Masuk (4 digit)</strong> untuk membuka lembar soal Google Form.</li>
+                  </ol>
                 </div>
               </div>
             </div>
@@ -621,7 +775,7 @@ export default function App() {
                   <Sparkles className="w-5 h-5 text-emerald-400" />
                   <span>Asisten AI - Pembuat Tata Tertib Ujian</span>
                 </h2>
-                <p className="text-xs text-slate-400">Pilih ujian untuk dibuatkan tata tertib dan petunjuk pengisian secara otomatis.</p>
+                <p className="text-xs text-slate-400">Pilih ujian untuk dibuatkan tata tertib dan petunjuk pengerjaan barcode ujian secara otomatis.</p>
               </div>
 
               <div className="flex items-center gap-3 w-full sm:w-auto">
@@ -659,6 +813,123 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Barcode / QR Code Modal */}
+      {barcodeModalExam && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] space-y-6">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                  <QrCode className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Barcode Soal Ujian</h3>
+                  <p className="text-xs text-slate-400">{barcodeModalExam.examTitle}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setBarcodeModalExam(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Mode Selector */}
+            <div className="p-1 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-2 gap-1 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setBarcodeType('portal')}
+                className={`py-2 px-3 rounded-lg transition-all ${
+                  barcodeType === 'portal'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                QR Portal Siswa (Pakai PIN)
+              </button>
+              <button
+                type="button"
+                onClick={() => setBarcodeType('direct')}
+                className={`py-2 px-3 rounded-lg transition-all ${
+                  barcodeType === 'direct'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                QR Langsung Google Form
+              </button>
+            </div>
+
+            {/* QR Code Display Card */}
+            <div className="bg-white rounded-2xl p-6 flex flex-col items-center justify-center text-slate-950 shadow-inner">
+              <div className="text-center mb-3">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">KEMENTERIAN PENDIDIKAN / CBT UJIAN</span>
+                <h4 className="text-base font-black text-slate-900 leading-tight">{barcodeModalExam.examTitle}</h4>
+                <p className="text-xs text-slate-600 font-medium">{barcodeModalExam.subject} • {barcodeModalExam.durationMinutes} Menit</p>
+              </div>
+
+              {/* QR Image */}
+              <div className="relative p-2 bg-white rounded-xl border-2 border-slate-900 shadow-md">
+                {isGeneratingQr ? (
+                  <div className="w-64 h-64 flex items-center justify-center">
+                    <RefreshCw className="w-8 h-8 animate-spin text-slate-400" />
+                  </div>
+                ) : qrDataUrl ? (
+                  <img
+                    src={qrDataUrl}
+                    alt={`Barcode ${barcodeModalExam.id}`}
+                    className="w-64 h-64 object-contain rounded"
+                  />
+                ) : (
+                  <div className="w-64 h-64 flex items-center justify-center text-xs text-slate-400">
+                    Gagal memuat QR Code
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-4 text-center">
+                <span className="text-xs font-mono font-bold px-3 py-1 bg-slate-100 border border-slate-300 rounded-lg text-slate-800">
+                  ID: {barcodeModalExam.id}
+                </span>
+                {barcodeType === 'portal' && (
+                  <div className="mt-2 text-xs text-slate-600">
+                    Siswa memerlukan <strong className="text-slate-900">PIN Masuk: {barcodeModalExam.pinMasuk}</strong> setelah scan.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Actions: Download PNG, Print, Copy Link */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleDownloadQr}
+                className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+              >
+                <Download className="w-4 h-4 text-emerald-400" />
+                <span>Download Gambar QR</span>
+              </button>
+              <button
+                type="button"
+                onClick={handlePrintQrSheet}
+                className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow transition-colors"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Cetak Lembar Barcode</span>
+              </button>
+            </div>
+
+            <div className="pt-2 text-center">
+              <p className="text-[11px] text-slate-400">
+                Tempelkan lembar barcode di dinding kelas atau tayangkan melalui proyektor agar siswa dapat langsung memindai soal ujian.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add / Edit Exam Modal */}
       {isModalOpen && (
@@ -914,8 +1185,8 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <footer className="border-t border-slate-800/60 bg-slate-950 py-6 text-center text-xs text-slate-500">
-        Panel Admin Ujian CBT • Google Form & 3 PIN (4 Digit) • Didukung oleh Google AI Studio
+      <footer className="border-t border-slate-800/60 bg-slate-950 py-6 text-center text-xs text-slate-500 print:hidden">
+        Panel Admin Ujian CBT • Penyaluran Soal Barcode & 3 PIN (4 Digit) • Didukung oleh Google AI Studio
       </footer>
     </div>
   );
