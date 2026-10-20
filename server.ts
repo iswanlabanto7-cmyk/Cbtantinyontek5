@@ -162,6 +162,34 @@ apiRouter.get("/student/exam", (req, res) => {
   });
 });
 
+// Dedicated Client Application Endpoint: Returns Google Form URL and 3 PINs for CBT client apps
+apiRouter.get("/client/config", (req, res) => {
+  const { id } = req.query;
+  const exam = id ? examsList.find(e => e.id === id) : examsList.find(e => e.status === 'active') || examsList[0];
+
+  if (!exam) {
+    return res.status(404).json({ success: false, message: "Ujian tidak ditemukan" });
+  }
+
+  res.json({
+    success: true,
+    data: {
+      id: exam.id,
+      examTitle: exam.examTitle,
+      subject: exam.subject,
+      googleFormUrl: exam.googleFormUrl,
+      pinMasuk: exam.pinMasuk,
+      pinPengawas: exam.pinPengawas,
+      pinKeluar: exam.pinKeluar,
+      durationMinutes: exam.durationMinutes,
+      startTime: exam.startTime,
+      endTime: exam.endTime,
+      timezone: exam.timezone,
+      status: exam.status,
+    }
+  });
+});
+
 // Student PIN verification endpoint
 apiRouter.post("/student/verify-pin", (req, res) => {
   const { examId, pin, type } = req.body; // type: 'masuk' | 'keluar' | 'pengawas'

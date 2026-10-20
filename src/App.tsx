@@ -33,7 +33,10 @@ import {
   QrCode,
   Printer,
   Download,
-  ExternalLink
+  ExternalLink,
+  Code2,
+  Smartphone,
+  Cpu
 } from 'lucide-react';
 
 interface ExamItem {
@@ -59,14 +62,15 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'exams' | 'ai-helper'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'client-api' | 'ai-helper'>('exams');
 
   // Modal State for Add / Edit
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingExam, setEditingExam] = useState<ExamItem | null>(null);
 
-  // Barcode / QR Code Modal State (Unified)
+  // Barcode / QR Code Modal State
   const [barcodeModalExam, setBarcodeModalExam] = useState<ExamItem | null>(null);
+  const [qrFormat, setQrFormat] = useState<'url' | 'clientJson'>('url');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [isGeneratingQr, setIsGeneratingQr] = useState<boolean>(false);
 
@@ -85,6 +89,9 @@ export default function App() {
     status: 'draft',
     allowedClasses: ['Semua Kelas XII']
   });
+
+  // Client API tab selected exam
+  const [selectedClientApiExamId, setSelectedClientApiExamId] = useState<string>('');
 
   // AI Assistant states
   const [aiGenerating, setAiGenerating] = useState<boolean>(false);
@@ -108,8 +115,9 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setExams(data.data);
-        if (data.data.length > 0 && !aiSelectedExamId) {
-          setAiSelectedExamId(data.data[0].id);
+        if (data.data.length > 0) {
+          if (!aiSelectedExamId) setAiSelectedExamId(data.data[0].id);
+          if (!selectedClientApiExamId) setSelectedClientApiExamId(data.data[0].id);
         }
       }
     } catch (err) {
@@ -120,16 +128,29 @@ export default function App() {
     }
   };
 
-  // Generate unified QR Code pointing directly to Google Form URL
+  // Generate QR Code: ONLY Google Form URL or Client App JSON payload
   useEffect(() => {
     if (!barcodeModalExam) return;
 
     const generateCode = async () => {
       try {
         setIsGeneratingQr(true);
-        const targetUrl = barcodeModalExam.googleFormUrl || `${window.location.origin}/?examId=${barcodeModalExam.id}`;
+        // Only Google Form URL or Client App JSON payload (No portal)
+        const targetContent = qrFormat === 'url'
+          ? barcodeModalExam.googleFormUrl
+          : JSON.stringify({
+              app: "EXAMCBT",
+              id: barcodeModalExam.id,
+              examTitle: barcodeModalExam.examTitle,
+              subject: barcodeModalExam.subject,
+              googleFormUrl: barcodeModalExam.googleFormUrl,
+              pinMasuk: barcodeModalExam.pinMasuk,
+              pinPengawas: barcodeModalExam.pinPengawas,
+              pinKeluar: barcodeModalExam.pinKeluar,
+              durationMinutes: barcodeModalExam.durationMinutes,
+            });
 
-        const url = await QRCode.toDataURL(targetUrl, {
+        const url = await QRCode.toDataURL(targetContent, {
           width: 400,
           margin: 2,
           errorCorrectionLevel: 'H',
@@ -147,7 +168,7 @@ export default function App() {
     };
 
     generateCode();
-  }, [barcodeModalExam]);
+  }, [barcodeModalExam, qrFormat]);
 
   const formatAMPM = (dateString: string) => {
     if (!dateString) return '';
@@ -192,6 +213,7 @@ export default function App() {
 
   const handleOpenBarcodeModal = (exam: ExamItem) => {
     setBarcodeModalExam(exam);
+    setQrFormat('clientJson');
   };
 
   const handleSaveExam = async (e: React.FormEvent) => {
@@ -250,7 +272,7 @@ export default function App() {
     if (!qrDataUrl || !barcodeModalExam) return;
     const a = document.createElement('a');
     a.href = qrDataUrl;
-    a.download = `Barcode-GoogleForm-${barcodeModalExam.id}.png`;
+    a.download = `QR-Soal-${barcodeModalExam.id}-${qrFormat}.png`;
     a.click();
   };
 
@@ -301,6 +323,8 @@ export default function App() {
     );
   }
 
+  const selectedClientExam = exams.find(e => e.id === selectedClientApiExamId) || exams[0];
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Header */}
@@ -311,7 +335,7 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight text-white">EXAMCBT Admin</h1>
-            <p className="text-xs text-slate-400">Penyaluran Soal Google Form Melalui Barcode / QR Code & 3 Jenis PIN</p>
+            <p className="text-xs text-slate-400">Penyaluran Soal Google Form & 3 Jenis PIN untuk Aplikasi Client</p>
           </div>
         </div>
 
@@ -351,7 +375,19 @@ export default function App() {
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>Daftar Ujian & Barcode ({exams.length})</span>
+            <span>Daftar Ujian & QR Soal ({exams.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('client-api')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
+              activeTab === 'client-api'
+                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <Cpu className="w-4 h-4" />
+            <span>Konfigurasi Aplikasi Client (JSON)</span>
           </button>
 
           <button
@@ -367,13 +403,13 @@ export default function App() {
           </button>
         </div>
 
-        {/* Tab 1: Daftar Ujian & Barcode */}
+        {/* Tab 1: Daftar Ujian & Barcode Soal */}
         {activeTab === 'exams' && (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-white">Daftar Sesi Ujian & Penyaluran Barcode</h2>
-                <p className="text-xs text-slate-400">Setiap ujian dilengkapi dengan Barcode / QR Code (terhubung langsung ke Google Form), Jadwal (AM/PM), dan 3 Jenis PIN (4 digit).</p>
+                <h2 className="text-base font-semibold text-white">Daftar Sesi Ujian & QR Soal Google Form</h2>
+                <p className="text-xs text-slate-400">QR Code murni mengarah ke soal Google Form. PIN Masuk, PIN Pengawas, dan PIN Keluar siap ditangkap oleh aplikasi client.</p>
               </div>
             </div>
 
@@ -431,7 +467,7 @@ export default function App() {
 
                       {/* Google Form Link */}
                       <div className="flex items-center gap-2 pt-1">
-                        <span className="text-xs text-slate-500">Google Form:</span>
+                        <span className="text-xs text-slate-500">Link Google Form:</span>
                         <a
                           href={exam.googleFormUrl}
                           target="_blank"
@@ -452,24 +488,24 @@ export default function App() {
                           <span className="text-xs font-mono font-bold text-emerald-400 tracking-wider">{exam.pinMasuk}</span>
                         </div>
                         <div className="bg-slate-950 px-3 py-2.5 rounded-xl border border-slate-800">
-                          <span className="text-[10px] text-slate-500 block mb-0.5 font-medium">PIN Keluar</span>
-                          <span className="text-xs font-mono font-bold text-amber-400 tracking-wider">{exam.pinKeluar}</span>
-                        </div>
-                        <div className="bg-slate-950 px-3 py-2.5 rounded-xl border border-slate-800">
                           <span className="text-[10px] text-slate-500 block mb-0.5 font-medium">PIN Pengawas</span>
                           <span className="text-xs font-mono font-bold text-blue-400 tracking-wider">{exam.pinPengawas}</span>
                         </div>
+                        <div className="bg-slate-950 px-3 py-2.5 rounded-xl border border-slate-800">
+                          <span className="text-[10px] text-slate-500 block mb-0.5 font-medium">PIN Keluar</span>
+                          <span className="text-xs font-mono font-bold text-amber-400 tracking-wider">{exam.pinKeluar}</span>
+                        </div>
                       </div>
 
-                      {/* Action buttons including Barcode button */}
+                      {/* Action buttons */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <button
                           onClick={() => handleOpenBarcodeModal(exam)}
                           className="px-3 py-2.5 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
-                          title="Tampilkan / Cetak Barcode Ujian"
+                          title="Tampilkan / Cetak QR Soal Google Form"
                         >
                           <QrCode className="w-4 h-4" />
-                          <span>Barcode Soal</span>
+                          <span>QR Soal</span>
                         </button>
                         <button
                           onClick={() => handleOpenEditModal(exam)}
@@ -496,7 +532,147 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Asisten AI */}
+        {/* Tab 2: Konfigurasi Aplikasi Client (JSON) */}
+        {activeTab === 'client-api' && (
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-white mb-1 flex items-center gap-2">
+                  <Cpu className="w-5 h-5 text-emerald-400" />
+                  <span>Pengaturan Data untuk Ditangkap Aplikasi Client</span>
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Data Link Google Form, PIN Masuk, PIN Pengawas, dan PIN Keluar siap diambil oleh aplikasi client (Exambro / Android WebView / Flutter).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 w-full sm:w-auto">
+                <select
+                  value={selectedClientApiExamId}
+                  onChange={(e) => setSelectedClientApiExamId(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
+                >
+                  {exams.map(ex => (
+                    <option key={ex.id} value={ex.id}>{ex.examTitle} ({ex.id})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {selectedClientExam && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Left: Endpoint details & PIN Mapping */}
+                <div className="space-y-4">
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                    <span className="text-[11px] font-semibold text-slate-300 block mb-1">Endpoint API Client (GET):</span>
+                    <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-xs font-mono text-emerald-400 overflow-x-auto">
+                      <span className="truncate">{window.location.origin}/api/client/config?id={selectedClientExam.id}</span>
+                      <button
+                        onClick={() => copyToClipboard(`${window.location.origin}/api/client/config?id=${selectedClientExam.id}`, 'client-api-url')}
+                        className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors ml-2 shrink-0"
+                        title="Salin URL"
+                      >
+                        {copied === 'client-api-url' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3 PIN Mapping for Client */}
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
+                    <h4 className="text-xs font-semibold text-slate-200">Variabel PIN yang Ditangkap Aplikasi Client:</h4>
+                    
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                        <div>
+                          <span className="font-mono text-emerald-400 font-bold block">pinMasuk</span>
+                          <span className="text-[11px] text-slate-400">Verifikasi sebelum siswa membuka Google Form</span>
+                        </div>
+                        <span className="font-mono text-sm font-black text-emerald-400 px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
+                          {selectedClientExam.pinMasuk}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                        <div>
+                          <span className="font-mono text-blue-400 font-bold block">pinPengawas</span>
+                          <span className="text-[11px] text-slate-400">Buka kunci darurat / restart sesi oleh guru</span>
+                        </div>
+                        <span className="font-mono text-sm font-black text-blue-400 px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
+                          {selectedClientExam.pinPengawas}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                        <div>
+                          <span className="font-mono text-amber-400 font-bold block">pinKeluar</span>
+                          <span className="text-[11px] text-slate-400">Konfirmasi selesai sebelum siswa keluar dari fullscreen lock</span>
+                        </div>
+                        <span className="font-mono text-sm font-black text-amber-400 px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
+                          {selectedClientExam.pinKeluar}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Live JSON Payload Preview */}
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+                    <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                      <Code2 className="w-4 h-4 text-emerald-400" />
+                      <span>Respon JSON Client (Live Data)</span>
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(JSON.stringify({
+                        success: true,
+                        data: {
+                          id: selectedClientExam.id,
+                          examTitle: selectedClientExam.examTitle,
+                          subject: selectedClientExam.subject,
+                          googleFormUrl: selectedClientExam.googleFormUrl,
+                          pinMasuk: selectedClientExam.pinMasuk,
+                          pinPengawas: selectedClientExam.pinPengawas,
+                          pinKeluar: selectedClientExam.pinKeluar,
+                          durationMinutes: selectedClientExam.durationMinutes,
+                          startTime: selectedClientExam.startTime,
+                          endTime: selectedClientExam.endTime,
+                          timezone: selectedClientExam.timezone,
+                          status: selectedClientExam.status
+                        }
+                      }, null, 2), 'client-json')}
+                      className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-[11px] font-medium text-slate-300 flex items-center gap-1 transition-colors"
+                    >
+                      {copied === 'client-json' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copied === 'client-json' ? 'Disalin' : 'Salin JSON'}</span>
+                    </button>
+                  </div>
+
+                  <pre className="text-xs font-mono text-emerald-400 bg-slate-900/90 p-3 rounded-lg overflow-x-auto flex-1 leading-relaxed">
+{JSON.stringify({
+  success: true,
+  data: {
+    id: selectedClientExam.id,
+    examTitle: selectedClientExam.examTitle,
+    subject: selectedClientExam.subject,
+    googleFormUrl: selectedClientExam.googleFormUrl,
+    pinMasuk: selectedClientExam.pinMasuk,
+    pinPengawas: selectedClientExam.pinPengawas,
+    pinKeluar: selectedClientExam.pinKeluar,
+    durationMinutes: selectedClientExam.durationMinutes,
+    startTime: selectedClientExam.startTime,
+    endTime: selectedClientExam.endTime,
+    timezone: selectedClientExam.timezone,
+    status: selectedClientExam.status
+  }
+}, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 3: Asisten AI */}
         {activeTab === 'ai-helper' && (
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -544,18 +720,18 @@ export default function App() {
         )}
       </main>
 
-      {/* Unified Barcode / QR Code Modal */}
+      {/* Barcode / QR Code Modal (Google Form Only + 3 PINs) */}
       {barcodeModalExam && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] space-y-6">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 print:p-0 print:bg-white print:fixed print:inset-0 print:z-[9999]">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] space-y-6 print:border-none print:shadow-none print:p-0 print:bg-white print:max-w-none print:max-h-none print:space-y-0">
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 print:hidden">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                   <QrCode className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">Kartu Barcode & PIN Ujian</h3>
+                  <h3 className="text-base font-bold text-white">QR Code Soal Google Form & 3 PIN</h3>
                   <p className="text-xs text-slate-400">{barcodeModalExam.examTitle}</p>
                 </div>
               </div>
@@ -567,10 +743,36 @@ export default function App() {
               </button>
             </div>
 
-            {/* Unified QR Code & PIN Display Card */}
+            {/* QR Format Selector for Scanner / Client Apps */}
+            <div className="p-1 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-2 gap-1 text-xs font-medium print:hidden">
+              <button
+                type="button"
+                onClick={() => setQrFormat('clientJson')}
+                className={`py-2 px-3 rounded-lg transition-all ${
+                  qrFormat === 'clientJson'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                QR Soal + 3 PIN (Aplikasi Client)
+              </button>
+              <button
+                type="button"
+                onClick={() => setQrFormat('url')}
+                className={`py-2 px-3 rounded-lg transition-all ${
+                  qrFormat === 'url'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                QR Link Google Form Saja
+              </button>
+            </div>
+
+            {/* QR Code & 3 PINs Display Card */}
             <div className="bg-white rounded-2xl p-6 flex flex-col items-center justify-center text-slate-950 shadow-inner">
               <div className="text-center mb-3">
-                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">KARTU SOAL & AKSES UJIAN CBT</span>
+                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">EXAMCBT • LEMBAR SOAL UJIAN</span>
                 <h4 className="text-base font-black text-slate-900 leading-tight">{barcodeModalExam.examTitle}</h4>
                 <p className="text-xs text-slate-600 font-medium">{barcodeModalExam.subject} • {barcodeModalExam.durationMinutes} Menit</p>
               </div>
@@ -584,7 +786,7 @@ export default function App() {
                 ) : qrDataUrl ? (
                   <img
                     src={qrDataUrl}
-                    alt={`Barcode ${barcodeModalExam.id}`}
+                    alt={`QR Soal ${barcodeModalExam.id}`}
                     className="w-60 h-60 object-contain rounded"
                   />
                 ) : (
@@ -595,38 +797,40 @@ export default function App() {
               </div>
 
               <div className="mt-3 text-center">
-                <span className="text-[11px] text-slate-500 block mb-1">Scan QR di atas untuk membuka Google Form</span>
+                <span className="text-[11px] text-slate-600 block mb-1">
+                  {qrFormat === 'url' ? 'Scan untuk langsung membuka lembar soal Google Form' : 'Scan via scanner aplikasi client untuk menangkap link soal & 3 PIN'}
+                </span>
                 <span className="text-xs font-mono font-bold px-3 py-1 bg-slate-100 border border-slate-300 rounded-lg text-slate-800">
                   ID: {barcodeModalExam.id}
                 </span>
               </div>
 
-              {/* Unified 3 PINs Display on Card */}
+              {/* 3 PINs Display for Client App Lock & Proctor */}
               <div className="mt-4 w-full grid grid-cols-3 gap-2 pt-3 border-t border-slate-200 text-center">
                 <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
                   <span className="text-[10px] text-slate-500 block font-semibold">PIN MASUK</span>
                   <span className="text-sm font-mono font-black text-emerald-700 tracking-wider">{barcodeModalExam.pinMasuk}</span>
                 </div>
                 <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
-                  <span className="text-[10px] text-slate-500 block font-semibold">PIN KELUAR</span>
-                  <span className="text-sm font-mono font-black text-amber-700 tracking-wider">{barcodeModalExam.pinKeluar}</span>
-                </div>
-                <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
                   <span className="text-[10px] text-slate-500 block font-semibold">PIN PENGAWAS</span>
                   <span className="text-sm font-mono font-black text-blue-700 tracking-wider">{barcodeModalExam.pinPengawas}</span>
+                </div>
+                <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block font-semibold">PIN KELUAR</span>
+                  <span className="text-sm font-mono font-black text-amber-700 tracking-wider">{barcodeModalExam.pinKeluar}</span>
                 </div>
               </div>
             </div>
 
             {/* Actions: Download PNG, Print */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 print:hidden">
               <button
                 type="button"
                 onClick={handleDownloadQr}
                 className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
               >
                 <Download className="w-4 h-4 text-emerald-400" />
-                <span>Download Kartu QR</span>
+                <span>Download QR Soal</span>
               </button>
               <button
                 type="button"
@@ -634,13 +838,13 @@ export default function App() {
                 className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow transition-colors"
               >
                 <Printer className="w-4 h-4" />
-                <span>Cetak Kartu Ujian</span>
+                <span>Cetak Lembar Soal</span>
               </button>
             </div>
 
-            <div className="pt-2 text-center">
+            <div className="pt-2 text-center print:hidden">
               <p className="text-[11px] text-slate-400">
-                Kartu ini berisi QR Code langsung ke Google Form beserta ketiga PIN (Masuk, Keluar, Pengawas) yang siap dibagikan atau dicetak untuk ruang ujian.
+                Aplikasi client CBT dapat menangkap link soal Google Form dan 3 PIN secara otomatis melalui pemindaian QR ini atau melalui endpoint API <code className="text-emerald-400 font-mono">/api/client/config</code>.
               </p>
             </div>
           </div>
@@ -743,30 +947,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* PIN Keluar */}
-                  <div>
-                    <label className="block text-[11px] font-medium text-slate-300 mb-1">PIN Keluar (4 Digit)</label>
-                    <div className="flex gap-1">
-                      <input
-                        type="text"
-                        maxLength={4}
-                        placeholder="5678"
-                        value={formData.pinKeluar || ''}
-                        onChange={(e) => setFormData({ ...formData, pinKeluar: e.target.value })}
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-center font-mono text-base font-bold text-amber-400 tracking-widest"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => generateRandomPin('pinKeluar')}
-                        className="px-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300"
-                        title="Acak 4 Digit PIN"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-
                   {/* PIN Pengawas */}
                   <div>
                     <label className="block text-[11px] font-medium text-slate-300 mb-1">PIN Pengawas (4 Digit)</label>
@@ -783,6 +963,30 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => generateRandomPin('pinPengawas')}
+                        className="px-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300"
+                        title="Acak 4 Digit PIN"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* PIN Keluar */}
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-300 mb-1">PIN Keluar (4 Digit)</label>
+                    <div className="flex gap-1">
+                      <input
+                        type="text"
+                        maxLength={4}
+                        placeholder="5678"
+                        value={formData.pinKeluar || ''}
+                        onChange={(e) => setFormData({ ...formData, pinKeluar: e.target.value })}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-center font-mono text-base font-bold text-amber-400 tracking-widest"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => generateRandomPin('pinKeluar')}
                         className="px-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300"
                         title="Acak 4 Digit PIN"
                       >
