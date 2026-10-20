@@ -70,7 +70,6 @@ export default function App() {
 
   // Barcode / QR Code Modal State
   const [barcodeModalExam, setBarcodeModalExam] = useState<ExamItem | null>(null);
-  const [qrFormat, setQrFormat] = useState<'url' | 'clientJson'>('url');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [isGeneratingQr, setIsGeneratingQr] = useState<boolean>(false);
 
@@ -128,27 +127,24 @@ export default function App() {
     }
   };
 
-  // Generate QR Code: ONLY Google Form URL or Client App JSON payload
+  // Generate QR Code with Client App JSON payload (Google Form URL & 3 PINs)
   useEffect(() => {
     if (!barcodeModalExam) return;
 
     const generateCode = async () => {
       try {
         setIsGeneratingQr(true);
-        // Only Google Form URL or Client App JSON payload (No portal)
-        const targetContent = qrFormat === 'url'
-          ? barcodeModalExam.googleFormUrl
-          : JSON.stringify({
-              app: "EXAMCBT",
-              id: barcodeModalExam.id,
-              examTitle: barcodeModalExam.examTitle,
-              subject: barcodeModalExam.subject,
-              googleFormUrl: barcodeModalExam.googleFormUrl,
-              pinMasuk: barcodeModalExam.pinMasuk,
-              pinPengawas: barcodeModalExam.pinPengawas,
-              pinKeluar: barcodeModalExam.pinKeluar,
-              durationMinutes: barcodeModalExam.durationMinutes,
-            });
+        const targetContent = JSON.stringify({
+          app: "EXAMCBT",
+          id: barcodeModalExam.id,
+          examTitle: barcodeModalExam.examTitle,
+          subject: barcodeModalExam.subject,
+          googleFormUrl: barcodeModalExam.googleFormUrl,
+          pinMasuk: barcodeModalExam.pinMasuk,
+          pinPengawas: barcodeModalExam.pinPengawas,
+          pinKeluar: barcodeModalExam.pinKeluar,
+          durationMinutes: barcodeModalExam.durationMinutes,
+        });
 
         const url = await QRCode.toDataURL(targetContent, {
           width: 400,
@@ -168,7 +164,7 @@ export default function App() {
     };
 
     generateCode();
-  }, [barcodeModalExam, qrFormat]);
+  }, [barcodeModalExam]);
 
   const formatAMPM = (dateString: string) => {
     if (!dateString) return '';
@@ -213,7 +209,6 @@ export default function App() {
 
   const handleOpenBarcodeModal = (exam: ExamItem) => {
     setBarcodeModalExam(exam);
-    setQrFormat('clientJson');
   };
 
   const handleSaveExam = async (e: React.FormEvent) => {
@@ -272,7 +267,7 @@ export default function App() {
     if (!qrDataUrl || !barcodeModalExam) return;
     const a = document.createElement('a');
     a.href = qrDataUrl;
-    a.download = `QR-Soal-${barcodeModalExam.id}-${qrFormat}.png`;
+    a.download = `QR-Soal-${barcodeModalExam.id}.png`;
     a.click();
   };
 
@@ -743,32 +738,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* QR Format Selector for Scanner / Client Apps */}
-            <div className="p-1 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-2 gap-1 text-xs font-medium print:hidden">
-              <button
-                type="button"
-                onClick={() => setQrFormat('clientJson')}
-                className={`py-2 px-3 rounded-lg transition-all ${
-                  qrFormat === 'clientJson'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                QR Soal + 3 PIN (Aplikasi Client)
-              </button>
-              <button
-                type="button"
-                onClick={() => setQrFormat('url')}
-                className={`py-2 px-3 rounded-lg transition-all ${
-                  qrFormat === 'url'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                QR Link Google Form Saja
-              </button>
-            </div>
-
             {/* QR Code & 3 PINs Display Card */}
             <div className="bg-white rounded-2xl p-6 flex flex-col items-center justify-center text-slate-950 shadow-inner">
               <div className="text-center mb-3">
@@ -798,7 +767,7 @@ export default function App() {
 
               <div className="mt-3 text-center">
                 <span className="text-[11px] text-slate-600 block mb-1">
-                  {qrFormat === 'url' ? 'Scan untuk langsung membuka lembar soal Google Form' : 'Scan via scanner aplikasi client untuk menangkap link soal & 3 PIN'}
+                  Scan via scanner aplikasi client untuk menangkap link soal Google Form & 3 PIN
                 </span>
                 <span className="text-xs font-mono font-bold px-3 py-1 bg-slate-100 border border-slate-300 rounded-lg text-slate-800">
                   ID: {barcodeModalExam.id}
