@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Admin Ujian - Panel Kontrol Google Form & PIN</title>
-    <meta name="description" content="Panel admin ujian profesional untuk pengaturan Google Form, 3 jenis PIN, jadwal ujian, dan API siswa." />
-    <meta property="og:title" content="Admin Ujian - Panel Kontrol Google Form & PIN" />
-    <meta property="og:description" content="Panel admin ujian profesional untuk pengaturan Google Form, 3 jenis PIN, jadwal ujian, dan API siswa." />
+    <title>EXAMCBT Admin - Panel Kontrol Google Form & Barcode</title>
+    <meta name="description" content="Panel admin EXAMCBT profesional untuk pengaturan Google Form, 3 jenis PIN, dan penyaluran soal via Barcode." />
+    <meta property="og:title" content="EXAMCBT Admin - Panel Kontrol Google Form & Barcode" />
+    <meta property="og:description" content="Panel admin EXAMCBT profesional untuk pengaturan Google Form, 3 jenis PIN, dan penyaluran soal via Barcode." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <script>
@@ -14,9 +14,17 @@
       window.addEventListener('unhandledrejection', function (event) {
         if (event.reason && (
           event.reason.message?.includes('WebSocket') ||
-          String(event.reason).includes('WebSocket')
+          String(event.reason).includes('WebSocket') ||
+          String(event.reason).includes('closed without opened')
         )) {
           event.preventDefault();
+          event.stopPropagation();
+        }
+      });
+      window.addEventListener('error', function (event) {
+        if (event.message && (event.message.includes('WebSocket') || event.message.includes('closed without opened'))) {
+          event.preventDefault();
+          event.stopPropagation();
         }
       });
     </script>

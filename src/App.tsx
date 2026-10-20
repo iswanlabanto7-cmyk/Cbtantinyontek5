@@ -15,8 +15,6 @@ import {
   AlertCircle,
   RefreshCw,
   Sparkles,
-  Smartphone,
-  Code,
   FileText,
   Calendar,
   Globe,
@@ -35,8 +33,6 @@ import {
   QrCode,
   Printer,
   Download,
-  ScanLine,
-  Camera,
   ExternalLink
 } from 'lucide-react';
 
@@ -63,7 +59,7 @@ export default function App() {
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'exams' | 'student-api' | 'ai-helper'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'ai-helper'>('exams');
 
   // Modal State for Add / Edit
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -91,13 +87,6 @@ export default function App() {
     allowedClasses: ['Semua Kelas XII']
   });
 
-  // Student simulation states
-  const [selectedSimExamId, setSelectedSimExamId] = useState<string>('');
-  const [simPinInput, setSimPinInput] = useState('');
-  const [simPinType, setSimPinType] = useState<'masuk' | 'keluar' | 'pengawas'>('masuk');
-  const [simResult, setSimResult] = useState<{ success: boolean; message: string; formUrl?: string | null } | null>(null);
-  const [simActiveForm, setSimActiveForm] = useState<boolean>(false);
-
   // AI Assistant states
   const [aiGenerating, setAiGenerating] = useState<boolean>(false);
   const [aiGuidelines, setAiGuidelines] = useState<string>('');
@@ -113,20 +102,6 @@ export default function App() {
     fetchExams();
   }, []);
 
-  // Check URL parameters for direct exam access via scanned QR code (?examId=...)
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const examIdParam = urlParams.get('examId');
-    if (examIdParam) {
-      setSelectedSimExamId(examIdParam);
-      setActiveTab('student-api');
-      setMessage({
-        text: `Barcode Ujian ${examIdParam} berhasil di-scan! Masukkan PIN Masuk untuk memulai ujian.`,
-        type: 'success'
-      });
-    }
-  }, []);
-
   const fetchExams = async () => {
     try {
       setLoading(true);
@@ -134,8 +109,7 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         setExams(data.data);
-        if (data.data.length > 0 && !selectedSimExamId) {
-          setSelectedSimExamId(data.data[0].id);
+        if (data.data.length > 0 && !aiSelectedExamId) {
           setAiSelectedExamId(data.data[0].id);
         }
       }
@@ -154,8 +128,6 @@ export default function App() {
     const generateCode = async () => {
       try {
         setIsGeneratingQr(true);
-        // If type is portal, point student to the exam portal with ?examId parameter
-        // If type is direct, point directly to Google Form URL
         const targetUrl = barcodeType === 'portal'
           ? `${window.location.origin}/?examId=${barcodeModalExam.id}`
           : barcodeModalExam.googleFormUrl;
@@ -165,7 +137,7 @@ export default function App() {
           margin: 2,
           errorCorrectionLevel: 'H',
           color: {
-            dark: '#020617', // slate-950
+            dark: '#020617',
             light: '#ffffff'
           }
         });
@@ -278,36 +250,6 @@ export default function App() {
     setFormData({ ...formData, [field]: pin });
   };
 
-  const handleSimVerifyPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch('/api/student/verify-pin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ examId: selectedSimExamId, pin: simPinInput, type: simPinType }),
-      });
-      const data = await res.json();
-      setSimResult(data);
-      if (data.success && (simPinType === 'masuk' || simPinType === 'pengawas')) {
-        setSimActiveForm(true);
-      }
-    } catch (err) {
-      setSimResult({ success: false, message: "Kesalahan jaringan saat verifikasi PIN." });
-    }
-  };
-
-  const handleSimulateScanBarcode = (examId: string) => {
-    setSelectedSimExamId(examId);
-    setSimActiveForm(false);
-    setSimResult(null);
-    setSimPinInput('');
-    setMessage({
-      text: `Barcode Ujian ${examId} berhasil di-scan siswa! Silakan masukkan PIN Masuk.`,
-      type: 'success'
-    });
-    setTimeout(() => setMessage(null), 5000);
-  };
-
   const handleDownloadQr = () => {
     if (!qrDataUrl || !barcodeModalExam) return;
     const a = document.createElement('a');
@@ -363,8 +305,6 @@ export default function App() {
     );
   }
 
-  const selectedSimExam = exams.find(e => e.id === selectedSimExamId) || exams[0];
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Header */}
@@ -374,7 +314,7 @@ export default function App() {
             <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight text-white">Admin Ujian & Barcode Soal</h1>
+            <h1 className="text-lg font-bold tracking-tight text-white">EXAMCBT Admin</h1>
             <p className="text-xs text-slate-400">Penyaluran Soal Google Form Melalui Barcode / QR Code & 3 Jenis PIN</p>
           </div>
         </div>
@@ -419,18 +359,6 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveTab('student-api')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-              activeTab === 'student-api'
-                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-            }`}
-          >
-            <Smartphone className="w-4 h-4" />
-            <span>Scan Barcode & Simulasi Siswa</span>
-          </button>
-
-          <button
             onClick={() => setActiveTab('ai-helper')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
               activeTab === 'ai-helper'
@@ -449,7 +377,7 @@ export default function App() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold text-white">Daftar Sesi Ujian & Penyaluran Barcode</h2>
-                <p className="text-xs text-slate-400">Setiap ujian dilengkapi dengan Barcode / QR Code untuk discan siswa, Link Google Form, Jadwal (AM/PM), dan 3 Jenis PIN (4 digit).</p>
+                <p className="text-xs text-slate-400">Setiap ujian dilengkapi dengan Barcode / QR Code untuk disalurkan ke siswa, Link Google Form, Jadwal (AM/PM), dan 3 Jenis PIN (4 digit).</p>
               </div>
             </div>
 
@@ -572,201 +500,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Scan Barcode & Simulasi Siswa */}
-        {activeTab === 'student-api' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Left: Student Simulator with Barcode Scanner Integration */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Smartphone className="w-4 h-4 text-emerald-400" />
-                  <span>Simulasi Aplikasi Siswa (Hasil Scan Barcode)</span>
-                </h3>
-                <select
-                  value={selectedSimExamId}
-                  onChange={(e) => {
-                    setSelectedSimExamId(e.target.value);
-                    setSimActiveForm(false);
-                    setSimResult(null);
-                    setSimPinInput('');
-                  }}
-                  className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200"
-                >
-                  {exams.map(ex => (
-                    <option key={ex.id} value={ex.id}>{ex.examTitle} ({ex.subject})</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Barcode Quick-Scan Simulator Banner */}
-              <div className="mb-6 p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-                    <ScanLine className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-semibold text-white">Simulasi Scan Barcode di Kelas</h4>
-                    <p className="text-[11px] text-slate-400">Klik tombol scan untuk mensimulasikan siswa mengarahkan kamera HP ke barcode:</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleSimulateScanBarcode(selectedSimExamId)}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
-                >
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>Scan Barcode</span>
-                </button>
-              </div>
-
-              {!simActiveForm ? (
-                <div className="flex-1 flex flex-col justify-center py-4">
-                  {selectedSimExam && (
-                    <div className="text-center max-w-sm mx-auto mb-6">
-                      <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center text-emerald-400 mx-auto mb-3">
-                        <Lock className="w-6 h-6" />
-                      </div>
-                      <h4 className="text-base font-semibold text-white mb-1">{selectedSimExam.examTitle}</h4>
-                      <p className="text-xs text-slate-400">{selectedSimExam.subject} • {selectedSimExam.durationMinutes} Menit</p>
-                      <p className="text-[11px] text-emerald-400 mt-1">Mulai: {formatAMPM(selectedSimExam.startTime)}</p>
-                    </div>
-                  )}
-
-                  <form onSubmit={handleSimVerifyPin} className="space-y-4 max-w-sm mx-auto w-full">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-300 mb-1.5">Pilih Verifikasi PIN (4 Digit)</label>
-                      <select
-                        value={simPinType}
-                        onChange={(e) => setSimPinType(e.target.value as any)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200 mb-3"
-                      >
-                        <option value="masuk">PIN Masuk Ujian (4 Digit)</option>
-                        <option value="keluar">PIN Keluar (4 Digit)</option>
-                        <option value="pengawas">PIN Pengawas (4 Digit)</option>
-                      </select>
-
-                      <input
-                        type="text"
-                        maxLength={4}
-                        placeholder="Masukkan 4 Digit PIN"
-                        value={simPinInput}
-                        onChange={(e) => setSimPinInput(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-center font-mono text-lg tracking-widest text-emerald-400 font-bold focus:outline-none focus:border-emerald-500"
-                        required
-                      />
-                    </div>
-
-                    {simResult && (
-                      <div className={`p-3 rounded-xl text-xs ${simResult.success ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border border-red-500/30 text-red-300'}`}>
-                        {simResult.message}
-                      </div>
-                    )}
-
-                    <button
-                      type="submit"
-                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition-all"
-                    >
-                      Verifikasi & Masuk Ujian
-                    </button>
-                  </form>
-
-                  {selectedSimExam && (
-                    <div className="mt-6 p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 text-center">
-                      Petunjuk Guru (Testing): PIN Masuk = <code className="text-emerald-400 font-mono">{selectedSimExam.pinMasuk}</code> | PIN Keluar = <code className="text-amber-400 font-mono">{selectedSimExam.pinKeluar}</code>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex-1 flex flex-col">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
-                    <div>
-                      <h4 className="text-xs font-semibold text-white">Sesi Ujian Siswa Berjalan</h4>
-                      <p className="text-[11px] text-emerald-400">Google Form terhubung dengan aman</p>
-                    </div>
-                    <button
-                      onClick={() => { setSimActiveForm(false); setSimResult(null); setSimPinInput(''); }}
-                      className="px-3 py-1.5 bg-red-600/20 text-red-400 hover:bg-red-600/30 border border-red-500/30 rounded-lg text-xs font-medium transition-colors"
-                    >
-                      Keluar / Selesai
-                    </button>
-                  </div>
-
-                  <div className="flex-1 bg-slate-950 rounded-xl border border-slate-800 overflow-hidden min-h-[350px] flex items-center justify-center relative">
-                    <div className="text-center p-6">
-                      <FileText className="w-12 h-12 text-emerald-500 mx-auto mb-3 animate-bounce" />
-                      <h5 className="text-sm font-semibold text-white mb-1">Google Form Ujian</h5>
-                      <p className="text-xs text-slate-400 max-w-xs mx-auto mb-4 truncate">{selectedSimExam?.googleFormUrl}</p>
-                      <a
-                        href={selectedSimExam?.googleFormUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition-colors"
-                      >
-                        <span>Buka Google Form di Tab Baru</span>
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Right: API Documentation for Barcode & Client Apps */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
-                <Code className="w-4 h-4 text-emerald-400" />
-                <span>Format URL Barcode & API Siswa</span>
-              </h3>
-
-              <p className="text-xs text-slate-400 mb-4">
-                Saat siswa memindai Barcode / QR Code menggunakan kamera HP atau scanner aplikasi CBT, URL berikut yang dieksekusi:
-              </p>
-
-              <div className="space-y-4 flex-1">
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-300 block mb-1">1. URL Target Barcode Siswa</span>
-                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 overflow-x-auto flex items-center justify-between">
-                    <span className="truncate">{window.location.origin}/?examId={selectedSimExamId}</span>
-                    <button
-                      onClick={() => copyToClipboard(`${window.location.origin}/?examId=${selectedSimExamId}`, 'barcode-link')}
-                      className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors shrink-0 ml-2"
-                      title="Salin Link Barcode"
-                    >
-                      {copied === 'barcode-link' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-300 block mb-1">2. Endpoint Ambil Data Ujian (GET)</span>
-                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 overflow-x-auto">
-                    GET {window.location.origin}/api/student/exam?id={selectedSimExamId}
-                  </div>
-                </div>
-
-                <div>
-                  <span className="text-[11px] font-semibold text-slate-300 block mb-1">3. Verifikasi PIN Siswa (POST)</span>
-                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-slate-300 overflow-x-auto">
-                    <span className="text-purple-400">POST</span> {window.location.origin}/api/student/verify-pin<br/>
-                    <span className="text-slate-500">{`{ "examId": "${selectedSimExamId}", "pin": "4821", "type": "masuk" }`}</span>
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800">
-                  <h4 className="text-xs font-semibold text-slate-200 mb-2">Cara Kerja Penyaluran Soal via Barcode:</h4>
-                  <ol className="text-xs text-slate-400 space-y-1.5 list-decimal list-inside leading-relaxed">
-                    <li>Guru mencetak lembar barcode ujian atau menampilkan barcode di proyektor kelas.</li>
-                    <li>Siswa memindai barcode menggunakan kamera HP atau scanner aplikasi CBT.</li>
-                    <li>Aplikasi siswa langsung membuka halaman ujian dengan nama mapel dan jadwal yang sesuai.</li>
-                    <li>Siswa memasukkan <strong>PIN Masuk (4 digit)</strong> untuk membuka lembar soal Google Form.</li>
-                  </ol>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab 3: Asisten AI */}
+        {/* Tab 2: Asisten AI */}
         {activeTab === 'ai-helper' && (
           <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -1186,7 +920,7 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-slate-800/60 bg-slate-950 py-6 text-center text-xs text-slate-500 print:hidden">
-        Panel Admin Ujian CBT • Penyaluran Soal Barcode & 3 PIN (4 Digit) • Didukung oleh Google AI Studio
+        EXAMCBT Admin • Penyaluran Soal Barcode & 3 PIN (4 Digit) • Didukung oleh Google AI Studio
       </footer>
     </div>
   );

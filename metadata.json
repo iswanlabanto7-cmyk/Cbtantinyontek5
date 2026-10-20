@@ -1,6 +1,6 @@
 {
-  "name": "Admin Ujian - Panel Kontrol Google Form & PIN",
-  "description": "Panel admin ujian profesional untuk pengaturan Google Form, 3 jenis PIN (Masuk, Keluar, Pengawas), jadwal ujian (WIB/WITA/WIT), dan API endpoint untuk aplikasi siswa.",
+  "name": "EXAMCBT Admin",
+  "description": "Panel admin EXAMCBT profesional untuk pengaturan Google Form, 3 jenis PIN (4 digit), jadwal ujian (AM/PM), dan penyaluran soal via Barcode / QR Code.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

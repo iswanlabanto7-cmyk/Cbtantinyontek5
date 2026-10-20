@@ -154,7 +154,10 @@ apiRouter.get("/student/exam", (req, res) => {
       endTime: exam.endTime,
       timezone: exam.timezone,
       status: exam.status,
-      googleFormUrl: exam.status === 'active' ? exam.googleFormUrl : null,
+      googleFormUrl: exam.googleFormUrl,
+      pinMasuk: exam.pinMasuk,
+      pinKeluar: exam.pinKeluar,
+      pinPengawas: exam.pinPengawas,
     }
   });
 });
