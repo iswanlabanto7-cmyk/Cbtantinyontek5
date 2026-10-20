@@ -65,9 +65,8 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingExam, setEditingExam] = useState<ExamItem | null>(null);
 
-  // Barcode / QR Code Modal State
+  // Barcode / QR Code Modal State (Unified)
   const [barcodeModalExam, setBarcodeModalExam] = useState<ExamItem | null>(null);
-  const [barcodeType, setBarcodeType] = useState<'portal' | 'direct'>('portal');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [isGeneratingQr, setIsGeneratingQr] = useState<boolean>(false);
 
@@ -121,16 +120,14 @@ export default function App() {
     }
   };
 
-  // Generate QR Code whenever barcodeModalExam or barcodeType changes
+  // Generate unified QR Code pointing directly to Google Form URL
   useEffect(() => {
     if (!barcodeModalExam) return;
 
     const generateCode = async () => {
       try {
         setIsGeneratingQr(true);
-        const targetUrl = barcodeType === 'portal'
-          ? `${window.location.origin}/?examId=${barcodeModalExam.id}`
-          : barcodeModalExam.googleFormUrl;
+        const targetUrl = barcodeModalExam.googleFormUrl || `${window.location.origin}/?examId=${barcodeModalExam.id}`;
 
         const url = await QRCode.toDataURL(targetUrl, {
           width: 400,
@@ -150,7 +147,7 @@ export default function App() {
     };
 
     generateCode();
-  }, [barcodeModalExam, barcodeType]);
+  }, [barcodeModalExam]);
 
   const formatAMPM = (dateString: string) => {
     if (!dateString) return '';
@@ -195,7 +192,6 @@ export default function App() {
 
   const handleOpenBarcodeModal = (exam: ExamItem) => {
     setBarcodeModalExam(exam);
-    setBarcodeType('portal');
   };
 
   const handleSaveExam = async (e: React.FormEvent) => {
@@ -254,7 +250,7 @@ export default function App() {
     if (!qrDataUrl || !barcodeModalExam) return;
     const a = document.createElement('a');
     a.href = qrDataUrl;
-    a.download = `Barcode-${barcodeModalExam.id}-${barcodeType}.png`;
+    a.download = `Barcode-GoogleForm-${barcodeModalExam.id}.png`;
     a.click();
   };
 
@@ -377,7 +373,7 @@ export default function App() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold text-white">Daftar Sesi Ujian & Penyaluran Barcode</h2>
-                <p className="text-xs text-slate-400">Setiap ujian dilengkapi dengan Barcode / QR Code untuk disalurkan ke siswa, Link Google Form, Jadwal (AM/PM), dan 3 Jenis PIN (4 digit).</p>
+                <p className="text-xs text-slate-400">Setiap ujian dilengkapi dengan Barcode / QR Code (terhubung langsung ke Google Form), Jadwal (AM/PM), dan 3 Jenis PIN (4 digit).</p>
               </div>
             </div>
 
@@ -548,7 +544,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Barcode / QR Code Modal */}
+      {/* Unified Barcode / QR Code Modal */}
       {barcodeModalExam && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl overflow-y-auto max-h-[90vh] space-y-6">
@@ -559,7 +555,7 @@ export default function App() {
                   <QrCode className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">Barcode Soal Ujian</h3>
+                  <h3 className="text-base font-bold text-white">Kartu Barcode & PIN Ujian</h3>
                   <p className="text-xs text-slate-400">{barcodeModalExam.examTitle}</p>
                 </div>
               </div>
@@ -571,36 +567,10 @@ export default function App() {
               </button>
             </div>
 
-            {/* Mode Selector */}
-            <div className="p-1 bg-slate-950 rounded-xl border border-slate-800 grid grid-cols-2 gap-1 text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setBarcodeType('portal')}
-                className={`py-2 px-3 rounded-lg transition-all ${
-                  barcodeType === 'portal'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                QR Portal Siswa (Pakai PIN)
-              </button>
-              <button
-                type="button"
-                onClick={() => setBarcodeType('direct')}
-                className={`py-2 px-3 rounded-lg transition-all ${
-                  barcodeType === 'direct'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                QR Langsung Google Form
-              </button>
-            </div>
-
-            {/* QR Code Display Card */}
+            {/* Unified QR Code & PIN Display Card */}
             <div className="bg-white rounded-2xl p-6 flex flex-col items-center justify-center text-slate-950 shadow-inner">
               <div className="text-center mb-3">
-                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">KEMENTERIAN PENDIDIKAN / CBT UJIAN</span>
+                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">KARTU SOAL & AKSES UJIAN CBT</span>
                 <h4 className="text-base font-black text-slate-900 leading-tight">{barcodeModalExam.examTitle}</h4>
                 <p className="text-xs text-slate-600 font-medium">{barcodeModalExam.subject} • {barcodeModalExam.durationMinutes} Menit</p>
               </div>
@@ -608,35 +578,47 @@ export default function App() {
               {/* QR Image */}
               <div className="relative p-2 bg-white rounded-xl border-2 border-slate-900 shadow-md">
                 {isGeneratingQr ? (
-                  <div className="w-64 h-64 flex items-center justify-center">
+                  <div className="w-60 h-60 flex items-center justify-center">
                     <RefreshCw className="w-8 h-8 animate-spin text-slate-400" />
                   </div>
                 ) : qrDataUrl ? (
                   <img
                     src={qrDataUrl}
                     alt={`Barcode ${barcodeModalExam.id}`}
-                    className="w-64 h-64 object-contain rounded"
+                    className="w-60 h-60 object-contain rounded"
                   />
                 ) : (
-                  <div className="w-64 h-64 flex items-center justify-center text-xs text-slate-400">
+                  <div className="w-60 h-60 flex items-center justify-center text-xs text-slate-400">
                     Gagal memuat QR Code
                   </div>
                 )}
               </div>
 
-              <div className="mt-4 text-center">
+              <div className="mt-3 text-center">
+                <span className="text-[11px] text-slate-500 block mb-1">Scan QR di atas untuk membuka Google Form</span>
                 <span className="text-xs font-mono font-bold px-3 py-1 bg-slate-100 border border-slate-300 rounded-lg text-slate-800">
                   ID: {barcodeModalExam.id}
                 </span>
-                {barcodeType === 'portal' && (
-                  <div className="mt-2 text-xs text-slate-600">
-                    Siswa memerlukan <strong className="text-slate-900">PIN Masuk: {barcodeModalExam.pinMasuk}</strong> setelah scan.
-                  </div>
-                )}
+              </div>
+
+              {/* Unified 3 PINs Display on Card */}
+              <div className="mt-4 w-full grid grid-cols-3 gap-2 pt-3 border-t border-slate-200 text-center">
+                <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block font-semibold">PIN MASUK</span>
+                  <span className="text-sm font-mono font-black text-emerald-700 tracking-wider">{barcodeModalExam.pinMasuk}</span>
+                </div>
+                <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block font-semibold">PIN KELUAR</span>
+                  <span className="text-sm font-mono font-black text-amber-700 tracking-wider">{barcodeModalExam.pinKeluar}</span>
+                </div>
+                <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
+                  <span className="text-[10px] text-slate-500 block font-semibold">PIN PENGAWAS</span>
+                  <span className="text-sm font-mono font-black text-blue-700 tracking-wider">{barcodeModalExam.pinPengawas}</span>
+                </div>
               </div>
             </div>
 
-            {/* Actions: Download PNG, Print, Copy Link */}
+            {/* Actions: Download PNG, Print */}
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
@@ -644,7 +626,7 @@ export default function App() {
                 className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
               >
                 <Download className="w-4 h-4 text-emerald-400" />
-                <span>Download Gambar QR</span>
+                <span>Download Kartu QR</span>
               </button>
               <button
                 type="button"
@@ -652,13 +634,13 @@ export default function App() {
                 className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow transition-colors"
               >
                 <Printer className="w-4 h-4" />
-                <span>Cetak Lembar Barcode</span>
+                <span>Cetak Kartu Ujian</span>
               </button>
             </div>
 
             <div className="pt-2 text-center">
               <p className="text-[11px] text-slate-400">
-                Tempelkan lembar barcode di dinding kelas atau tayangkan melalui proyektor agar siswa dapat langsung memindai soal ujian.
+                Kartu ini berisi QR Code langsung ke Google Form beserta ketiga PIN (Masuk, Keluar, Pengawas) yang siap dibagikan atau dicetak untuk ruang ujian.
               </p>
             </div>
           </div>
