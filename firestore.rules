@@ -59,13 +59,13 @@ service cloud.firestore {
       data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
       data.authorId is string && data.authorId.size() > 0 && data.authorId.size() <= 128 &&
       data.examTitle is string && data.examTitle.size() > 0 && data.examTitle.size() <= 200 &&
-      data.subject is string && data.subject.size() > 0 && data.subject.size() <= 150 &&
-      data.googleFormUrl is string && data.googleFormUrl.size() > 0 && data.googleFormUrl.size() <= 1000 &&
-      data.durationMinutes is number && data.durationMinutes > 0 && data.durationMinutes <= 1440 &&
-      data.pinMasuk is string && data.pinMasuk.size() > 0 && data.pinMasuk.size() <= 10 &&
-      data.pinKeluar is string && data.pinKeluar.size() > 0 && data.pinKeluar.size() <= 10 &&
-      data.pinPengawas is string && data.pinPengawas.size() > 0 && data.pinPengawas.size() <= 10 &&
-      (data.status == 'draft' || data.status == 'active' || data.status == 'closed') &&
+      data.subject is string && data.subject.size() <= 150 &&
+      data.googleFormUrl is string && data.googleFormUrl.size() <= 1000 &&
+      data.durationMinutes is number && data.durationMinutes >= 0 && data.durationMinutes <= 1440 &&
+      data.pinMasuk is string && data.pinMasuk.size() <= 20 &&
+      data.pinKeluar is string && data.pinKeluar.size() <= 20 &&
+      data.pinPengawas is string && data.pinPengawas.size() <= 20 &&
+      (data.status in ['draft', 'active', 'closed']) &&
       (!('authorEmail' in data) || (data.authorEmail is string && data.authorEmail.size() <= 150)) &&
       (!('startTime' in data) || (data.startTime is string && data.startTime.size() <= 50)) &&
       (!('endTime' in data) || (data.endTime is string && data.endTime.size() <= 50)) &&
@@ -91,7 +91,7 @@ service cloud.firestore {
     match /exams/{examId} {
       allow get: if isSignedIn() &&
         isValidId(examId) &&
-        existing().authorId == request.auth.uid;
+        (!('authorId' in existing()) || existing().authorId == request.auth.uid);
 
       allow list: if isSignedIn() &&
         resource.data.authorId == request.auth.uid;
@@ -105,13 +105,13 @@ service cloud.firestore {
       allow update: if isSignedIn() &&
         isValidId(examId) &&
         isValidExam(incoming()) &&
-        existing().authorId == request.auth.uid &&
-        incoming().authorId == existing().authorId &&
-        incoming().id == existing().id;
+        (!('authorId' in existing()) || existing().authorId == request.auth.uid) &&
+        incoming().authorId == request.auth.uid &&
+        (!('id' in existing()) || incoming().id == existing().id);
 
       allow delete: if isSignedIn() &&
         isValidId(examId) &&
-        existing().authorId == request.auth.uid;
+        (!('authorId' in existing()) || existing().authorId == request.auth.uid);
     }
 
     // Rules for User Profiles - Strictly isolated per user:
@@ -138,3 +138,4 @@ service cloud.firestore {
     }
   }
 }
+

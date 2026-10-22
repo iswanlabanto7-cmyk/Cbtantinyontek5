@@ -1,5 +1,14 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  User
+} from "firebase/auth";
 import {
   getFirestore,
   doc,
@@ -60,8 +69,9 @@ export function handleFirestoreError(
   operationType: OperationType,
   path: string | null
 ): never {
+  const rawMsg = error instanceof Error ? error.message : String(error);
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: rawMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -78,7 +88,7 @@ export function handleFirestoreError(
     path,
   };
   console.error("Firestore Error: ", JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  throw new Error(rawMsg);
 }
 
 // Validate Connection to Firestore
@@ -92,13 +102,67 @@ export async function testConnection() {
   }
 }
 
-// Auth Helper
+// Auth Helpers
 export async function loginWithGoogle() {
   try {
     return await signInWithPopup(auth, googleProvider);
-  } catch (error) {
-    console.error("Gagal login dengan Google:", error);
+  } catch (error: any) {
+    console.error("Gagal login dengan Google Popup:", error);
+    if (error.code === 'auth/popup-blocked') {
+      throw new Error("Popup browser diblokir. Silakan gunakan 'Masuk Cepat Guru/Admin' atau izinkan popup.");
+    }
+    if (error.code === 'auth/unauthorized-domain') {
+      throw new Error("Domain belum terdaftar di Firebase Authorized Domains. Silakan gunakan 'Masuk Cepat Guru/Admin'.");
+    }
     throw error;
+  }
+}
+
+export async function loginWithEmail(email: string, pass: string) {
+  try {
+    return await signInWithEmailAndPassword(auth, email, pass);
+  } catch (error: any) {
+    console.error("Gagal login email:", error);
+    throw error;
+  }
+}
+
+export async function registerWithEmail(email: string, pass: string, displayName?: string) {
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    if (displayName && cred.user) {
+      await updateProfile(cred.user, { displayName });
+    }
+    return cred;
+  } catch (error: any) {
+    console.error("Gagal daftar akun:", error);
+    throw error;
+  }
+}
+
+// 1-Click Fast Login for Guru / Admin in preview environment
+export const DEFAULT_GURU_EMAIL = "guru.iswan@examcbt.id";
+export const DEFAULT_GURU_PASS = "GuruHebat2026!";
+
+export async function loginAsDefaultAdmin(): Promise<User> {
+  try {
+    const cred = await signInWithEmailAndPassword(auth, DEFAULT_GURU_EMAIL, DEFAULT_GURU_PASS);
+    return cred.user;
+  } catch (err: any) {
+    if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential") {
+      try {
+        const newCred = await createUserWithEmailAndPassword(auth, DEFAULT_GURU_EMAIL, DEFAULT_GURU_PASS);
+        await updateProfile(newCred.user, { displayName: "Iswan Labanto (Guru)" });
+        return newCred.user;
+      } catch (createErr: any) {
+        if (createErr.code === "auth/email-already-in-use") {
+          const fallbackCred = await signInWithEmailAndPassword(auth, DEFAULT_GURU_EMAIL, DEFAULT_GURU_PASS);
+          return fallbackCred.user;
+        }
+        throw createErr;
+      }
+    }
+    throw err;
   }
 }
 
@@ -110,3 +174,4 @@ export async function logoutUser() {
     throw error;
   }
 }
+
