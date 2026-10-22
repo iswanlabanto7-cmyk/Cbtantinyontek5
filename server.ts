@@ -10,6 +10,8 @@ const DATA_FILE = path.resolve(DATA_DIR, "exams.json");
 
 interface ExamItem {
   id: string;
+  authorId?: string;
+  authorEmail?: string;
   examTitle: string;
   subject: string;
   googleFormUrl: string;
@@ -109,7 +111,9 @@ apiRouter.get("/exams", (req, res) => {
 apiRouter.post("/exams", (req, res) => {
   try {
     const newExam: ExamItem = {
-      id: `EXAM-${Math.floor(1000 + Math.random() * 9000)}`,
+      id: req.body.id || `EXAM-${Math.floor(1000 + Math.random() * 9000)}`,
+      authorId: req.body.authorId || '',
+      authorEmail: req.body.authorEmail || '',
       examTitle: req.body.examTitle || "Ujian Baru",
       subject: req.body.subject || "Mata Pelajaran",
       googleFormUrl: req.body.googleFormUrl || "",
@@ -122,7 +126,7 @@ apiRouter.post("/exams", (req, res) => {
       timezone: req.body.timezone || "WIB",
       status: req.body.status || "draft",
       allowedClasses: req.body.allowedClasses || ["Semua Kelas"],
-      createdAt: new Date().toISOString(),
+      createdAt: req.body.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 

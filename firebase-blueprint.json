@@ -2,13 +2,23 @@
   "entities": {
     "Exam": {
       "title": "Exam",
-      "description": "Dokumen konfigurasi ujian, link Google Form, dan 3 PIN keamanan CBT",
+      "description": "Dokumen konfigurasi ujian, link Google Form, dan 3 PIN keamanan CBT yang diisolasi ketat per pengguna",
       "type": "object",
       "properties": {
         "id": {
           "type": "string",
           "description": "Kode unik sesi ujian (contoh: EXAM-2026-001)",
           "maxLength": 64
+        },
+        "authorId": {
+          "type": "string",
+          "description": "UID pengguna pemilik data ujian",
+          "maxLength": 128
+        },
+        "authorEmail": {
+          "type": "string",
+          "description": "Alamat email pembuat ujian",
+          "maxLength": 150
         },
         "examTitle": {
           "type": "string",
@@ -70,15 +80,18 @@
         },
         "createdAt": {
           "type": "string",
-          "description": "Waktu pembuatan dokumen"
+          "description": "Waktu pembuatan dokumen",
+          "maxLength": 50
         },
         "updatedAt": {
           "type": "string",
-          "description": "Waktu pembaruan terakhir dokumen"
+          "description": "Waktu pembaruan terakhir dokumen",
+          "maxLength": 50
         }
       },
       "required": [
         "id",
+        "authorId",
         "examTitle",
         "subject",
         "googleFormUrl",
@@ -89,37 +102,53 @@
         "status"
       ]
     },
-    "Admin": {
-      "title": "Admin",
-      "description": "Data administrator sistem EXAMCBT Admin",
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Data profil akun pengguna yang diproteksi secara privat",
       "type": "object",
       "properties": {
+        "uid": {
+          "type": "string",
+          "description": "UID autentikasi Firebase pengguna",
+          "maxLength": 128
+        },
         "email": {
           "type": "string",
-          "description": "Alamat email resmi administrator",
+          "description": "Alamat email pengguna",
           "maxLength": 150
         },
-        "role": {
+        "displayName": {
           "type": "string",
-          "enum": ["admin", "superadmin"],
-          "description": "Tingkat hak akses administrator"
+          "description": "Nama tampilan pengguna",
+          "maxLength": 150
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "URL foto avatar profil pengguna",
+          "maxLength": 500
         },
         "createdAt": {
           "type": "string",
-          "description": "Waktu pendaftaran akun admin"
+          "description": "Waktu pendaftaran profil",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Waktu pembaruan profil terakhir",
+          "maxLength": 50
         }
       },
-      "required": ["email", "role"]
+      "required": ["uid", "email"]
     }
   },
   "firestore": {
     "/exams/{examId}": {
       "schema": "Exam",
-      "description": "Koleksi data sesi ujian, PIN keamanan, dan link Google Form"
+      "description": "Koleksi data sesi ujian yang hanya dapat dibaca dan dikelola oleh pemiliknya sendiri (authorId == request.auth.uid)"
     },
-    "/admins/{adminId}": {
-      "schema": "Admin",
-      "description": "Koleksi akun administrator sistem ujian"
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Koleksi profil akun pengguna yang hanya dapat dibaca dan ditulis oleh pengguna terkait (userId == request.auth.uid)"
     }
   }
 }

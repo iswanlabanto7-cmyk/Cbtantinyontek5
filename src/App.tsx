@@ -56,11 +56,15 @@ import {
   onSnapshot,
   doc,
   setDoc,
-  deleteDoc
+  deleteDoc,
+  query,
+  where
 } from 'firebase/firestore';
 
 interface ExamItem {
   id: string;
+  authorId?: string;
+  authorEmail?: string;
   examTitle: string;
   subject: string;
   googleFormUrl: string;
@@ -128,62 +132,81 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [isFirebaseSyncActive, setIsFirebaseSyncActive] = useState<boolean>(false);
 
-  // Initialize Firebase Auth & Test Connection
+  // Initialize Firebase Auth & Real-time user-isolated Firestore sync
   useEffect(() => {
     testConnection();
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    let unsubscribeFirestore: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       setAuthLoading(false);
+
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
+        unsubscribeFirestore = null;
+      }
+
+      if (user) {
+        // 1. Sync User Profile to /users/{userId}
+        try {
+          const userDocRef = doc(db, 'users', user.uid);
+          await setDoc(userDocRef, {
+            uid: user.uid,
+            email: user.email || '',
+            displayName: user.displayName || 'Pengguna',
+            photoURL: user.photoURL || '',
+            updatedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString()
+          }, { merge: true });
+        } catch (profileErr) {
+          console.warn("User profile sync error:", profileErr);
+        }
+
+        // 2. Query exams isolated strictly to this user
+        setLoading(true);
+        try {
+          const q = query(collection(db, 'exams'), where('authorId', '==', user.uid));
+          unsubscribeFirestore = onSnapshot(
+            q,
+            (snapshot) => {
+              const list: ExamItem[] = [];
+              snapshot.forEach((docSnap) => {
+                list.push(docSnap.data() as ExamItem);
+              });
+              // Sort by createdAt descending
+              list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+              setExams(list);
+              setIsFirebaseSyncActive(true);
+              setLoading(false);
+
+              if (list.length > 0) {
+                setAiSelectedExamId((prev) => prev || list[0].id);
+                setSelectedClientApiExamId((prev) => prev || list[0].id);
+              }
+            },
+            (error) => {
+              console.warn("Firestore user query error:", error);
+              setIsFirebaseSyncActive(false);
+              setLoading(false);
+            }
+          );
+        } catch (err) {
+          console.warn("Error subscribing to user exams:", err);
+          setIsFirebaseSyncActive(false);
+          setLoading(false);
+        }
+      } else {
+        // Not logged in: Firestore requires authentication and authorId match
+        setIsFirebaseSyncActive(false);
+        setExams([]);
+        setLoading(false);
+      }
     });
 
-    return () => unsubscribeAuth();
-  }, []);
-
-  // Real-time Firestore sync with fallback to server API
-  useEffect(() => {
-    let isSubscribed = true;
-
-    try {
-      const examsColRef = collection(db, 'exams');
-      const unsubscribeFirestore = onSnapshot(
-        examsColRef,
-        (snapshot) => {
-          if (!isSubscribed) return;
-          if (!snapshot.empty) {
-            const list: ExamItem[] = [];
-            snapshot.forEach((docSnap) => {
-              list.push(docSnap.data() as ExamItem);
-            });
-            // Sort by createdAt descending
-            list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-            setExams(list);
-            setIsFirebaseSyncActive(true);
-            setLoading(false);
-
-            if (list.length > 0) {
-              setAiSelectedExamId((prev) => prev || list[0].id);
-              setSelectedClientApiExamId((prev) => prev || list[0].id);
-            }
-          } else {
-            // Firestore is empty initially, load from server and seed
-            fetchExamsFallback();
-          }
-        },
-        (error) => {
-          console.warn("Firestore onSnapshot error, fallback ke REST API:", error);
-          setIsFirebaseSyncActive(false);
-          fetchExamsFallback();
-        }
-      );
-
-      return () => {
-        isSubscribed = false;
-        unsubscribeFirestore();
-      };
-    } catch (err) {
-      console.warn("Error setting up Firestore listener:", err);
-      fetchExamsFallback();
-    }
+    return () => {
+      if (unsubscribeFirestore) unsubscribeFirestore();
+      unsubscribeAuth();
+    };
   }, []);
 
   const fetchExamsFallback = async () => {
@@ -313,11 +336,21 @@ export default function App() {
 
   const handleSaveExam = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser) {
+      setMessage({
+        text: "Silakan login dengan Akun Google terlebih dahulu. Aturan keamanan mewajibkan setiap data ujian terikat secara privat ke akun pemiliknya.",
+        type: 'error'
+      });
+      return;
+    }
+
     try {
       setSaving(true);
       const examId = editingExam ? editingExam.id : (formData.id || `EXAM-${Math.floor(1000 + Math.random() * 9000)}`);
       const examData: ExamItem = {
         id: examId,
+        authorId: editingExam?.authorId || currentUser.uid,
+        authorEmail: editingExam?.authorEmail || currentUser.email || '',
         examTitle: formData.examTitle || "Ujian Baru",
         subject: formData.subject || "Mata Pelajaran",
         googleFormUrl: formData.googleFormUrl || "",
@@ -334,11 +367,12 @@ export default function App() {
         updatedAt: new Date().toISOString(),
       };
 
-      // 1. Sync to Firestore
+      // 1. Sync to Firestore with strict per-user ownership verification
       try {
         await setDoc(doc(db, 'exams', examId), examData);
-      } catch (fsErr) {
-        console.warn("Firestore setDoc:", fsErr);
+      } catch (fsErr: any) {
+        console.error("Firestore setDoc error:", fsErr);
+        handleFirestoreError(fsErr, OperationType.WRITE, `exams/${examId}`);
       }
 
       // 2. Sync to Server REST API
@@ -351,37 +385,46 @@ export default function App() {
       });
 
       setMessage({
-        text: editingExam ? "Ujian berhasil diperbarui!" : "Ujian baru berhasil disimpan ke Firestore & Server!",
+        text: editingExam ? "Ujian berhasil diperbarui!" : "Ujian berhasil disimpan secara privat ke database akun Anda!",
         type: 'success'
       });
       setIsModalOpen(false);
       setTimeout(() => setMessage(null), 4000);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setMessage({ text: "Terjadi kesalahan saat menyimpan data ujian.", type: 'error' });
+      setMessage({
+        text: err.message ? `Gagal menyimpan: ${err.message}` : "Terjadi kesalahan saat menyimpan data ujian.",
+        type: 'error'
+      });
     } finally {
       setSaving(false);
     }
   };
 
   const handleDeleteExam = async (id: string) => {
+    if (!currentUser) {
+      setMessage({ text: "Anda harus login untuk menghapus data ujian.", type: 'error' });
+      return;
+    }
+
     try {
-      // 1. Delete from Firestore
+      // 1. Delete from Firestore with ownership verification
       try {
         await deleteDoc(doc(db, 'exams', id));
-      } catch (fsErr) {
-        console.warn("Firestore deleteDoc:", fsErr);
+      } catch (fsErr: any) {
+        console.error("Firestore deleteDoc error:", fsErr);
+        handleFirestoreError(fsErr, OperationType.DELETE, `exams/${id}`);
       }
 
       // 2. Delete from REST API
       await fetch(`/api/exams/${id}`, { method: 'DELETE' });
 
-      setMessage({ text: "Ujian berhasil dihapus dari Firestore & Server.", type: 'success' });
+      setMessage({ text: "Ujian berhasil dihapus dari database akun Anda.", type: 'success' });
       setDeleteConfirmId(null);
       setTimeout(() => setMessage(null), 4000);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setMessage({ text: "Kesalahan jaringan saat menghapus ujian.", type: 'error' });
+      setMessage({ text: err.message || "Kesalahan saat menghapus ujian.", type: 'error' });
     }
   };
 
@@ -586,12 +629,38 @@ export default function App() {
         {/* Tab 1: Daftar Ujian & Barcode Soal */}
         {activeTab === 'exams' && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
                 <h2 className="text-base font-semibold text-white">Daftar Sesi Ujian & QR Soal Google Form</h2>
                 <p className="text-xs text-slate-400">QR Code murni mengarah ke soal Google Form. PIN Masuk, PIN Pengawas, dan PIN Keluar siap ditangkap oleh aplikasi client.</p>
               </div>
             </div>
+
+            {/* User Isolation Security Banner */}
+            {currentUser ? (
+              <div className="flex items-center gap-2.5 p-3.5 bg-slate-900/90 border border-emerald-500/30 rounded-xl text-xs text-slate-300">
+                <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>
+                  <strong className="text-emerald-400 font-medium">Isolasi Keamanan Firestore Aktif:</strong> Setiap pengguna hanya dapat membaca dan menulis data miliknya sendiri. Data ujian Anda terikat eksklusif ke akun <span className="text-white font-mono">{currentUser.email}</span> dan tidak dapat diakses oleh pengguna lain.
+                </span>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-200">
+                <div className="flex items-center gap-2.5">
+                  <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>
+                    <strong>Mode Akses Privat Aktif:</strong> Sesuai aturan keamanan default, setiap pengguna hanya dapat membaca dan menulis datanya sendiri tanpa akses ke data pengguna lain. Silakan login akun Google untuk memuat data Anda.
+                  </span>
+                </div>
+                <button
+                  onClick={handleLoginGoogle}
+                  className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold rounded-lg shrink-0 transition-colors flex items-center gap-1.5"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Login Google</span>
+                </button>
+              </div>
+            )}
 
             {exams.length === 0 ? (
               <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-12 text-center text-slate-400">

@@ -10,7 +10,11 @@ import {
   deleteDoc,
   updateDoc
 } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 import firebaseConfig from "../firebase-applet-config.json";
+
+// Export raw config
+export { firebaseConfig };
 
 // Initialize Firebase App
 export const app = initializeApp(firebaseConfig);
@@ -21,6 +25,9 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 // Initialize Authentication
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Initialize Storage
+export const storage = getStorage(app);
 
 export enum OperationType {
   CREATE = "create",
