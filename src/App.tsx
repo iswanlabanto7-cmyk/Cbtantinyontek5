@@ -36,8 +36,28 @@ import {
   ExternalLink,
   Code2,
   Smartphone,
-  Cpu
+  Cpu,
+  Flame,
+  LogIn,
+  User as UserIcon
 } from 'lucide-react';
+import {
+  db,
+  auth,
+  loginWithGoogle,
+  logoutUser,
+  testConnection,
+  handleFirestoreError,
+  OperationType
+} from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import {
+  collection,
+  onSnapshot,
+  doc,
+  setDoc,
+  deleteDoc
+} from 'firebase/firestore';
 
 interface ExamItem {
   id: string;
@@ -103,25 +123,84 @@ export default function App() {
   // Copy state
   const [copied, setCopied] = useState<string | null>(null);
 
+  // Firebase State
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [isFirebaseSyncActive, setIsFirebaseSyncActive] = useState<boolean>(false);
+
+  // Initialize Firebase Auth & Test Connection
   useEffect(() => {
-    fetchExams();
+    testConnection();
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribeAuth();
   }, []);
 
-  const fetchExams = async () => {
+  // Real-time Firestore sync with fallback to server API
+  useEffect(() => {
+    let isSubscribed = true;
+
+    try {
+      const examsColRef = collection(db, 'exams');
+      const unsubscribeFirestore = onSnapshot(
+        examsColRef,
+        (snapshot) => {
+          if (!isSubscribed) return;
+          if (!snapshot.empty) {
+            const list: ExamItem[] = [];
+            snapshot.forEach((docSnap) => {
+              list.push(docSnap.data() as ExamItem);
+            });
+            // Sort by createdAt descending
+            list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+            setExams(list);
+            setIsFirebaseSyncActive(true);
+            setLoading(false);
+
+            if (list.length > 0) {
+              setAiSelectedExamId((prev) => prev || list[0].id);
+              setSelectedClientApiExamId((prev) => prev || list[0].id);
+            }
+          } else {
+            // Firestore is empty initially, load from server and seed
+            fetchExamsFallback();
+          }
+        },
+        (error) => {
+          console.warn("Firestore onSnapshot error, fallback ke REST API:", error);
+          setIsFirebaseSyncActive(false);
+          fetchExamsFallback();
+        }
+      );
+
+      return () => {
+        isSubscribed = false;
+        unsubscribeFirestore();
+      };
+    } catch (err) {
+      console.warn("Error setting up Firestore listener:", err);
+      fetchExamsFallback();
+    }
+  }, []);
+
+  const fetchExamsFallback = async () => {
     try {
       setLoading(true);
       const res = await fetch('/api/exams');
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.data) {
         setExams(data.data);
         if (data.data.length > 0) {
-          if (!aiSelectedExamId) setAiSelectedExamId(data.data[0].id);
-          if (!selectedClientApiExamId) setSelectedClientApiExamId(data.data[0].id);
+          setAiSelectedExamId((prev) => prev || data.data[0].id);
+          setSelectedClientApiExamId((prev) => prev || data.data[0].id);
         }
       }
     } catch (err) {
       console.error("Failed to load exams", err);
-      setMessage({ text: "Gagal memuat data ujian dari server.", type: 'error' });
+      setMessage({ text: "Gagal memuat data ujian.", type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -211,30 +290,75 @@ export default function App() {
     setBarcodeModalExam(exam);
   };
 
+  const handleLoginGoogle = async () => {
+    try {
+      await loginWithGoogle();
+      setMessage({ text: "Berhasil masuk dengan akun Google!", type: 'success' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err: any) {
+      console.error(err);
+      setMessage({ text: err.message || "Gagal login Google.", type: 'error' });
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+      setMessage({ text: "Berhasil keluar dari akun.", type: 'success' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
   const handleSaveExam = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setSaving(true);
+      const examId = editingExam ? editingExam.id : (formData.id || `EXAM-${Math.floor(1000 + Math.random() * 9000)}`);
+      const examData: ExamItem = {
+        id: examId,
+        examTitle: formData.examTitle || "Ujian Baru",
+        subject: formData.subject || "Mata Pelajaran",
+        googleFormUrl: formData.googleFormUrl || "",
+        durationMinutes: Number(formData.durationMinutes) || 90,
+        pinMasuk: formData.pinMasuk || "1234",
+        pinKeluar: formData.pinKeluar || "5678",
+        pinPengawas: formData.pinPengawas || "9988",
+        startTime: formData.startTime || new Date().toISOString().slice(0, 16),
+        endTime: formData.endTime || new Date(Date.now() + 7200000).toISOString().slice(0, 16),
+        timezone: (formData.timezone as any) || "WIB",
+        status: (formData.status as any) || "draft",
+        allowedClasses: formData.allowedClasses || ["Semua Kelas"],
+        createdAt: editingExam?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      // 1. Sync to Firestore
+      try {
+        await setDoc(doc(db, 'exams', examId), examData);
+      } catch (fsErr) {
+        console.warn("Firestore setDoc:", fsErr);
+      }
+
+      // 2. Sync to Server REST API
       const url = editingExam ? `/api/exams/${editingExam.id}` : '/api/exams';
       const method = editingExam ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
+      await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(examData),
       });
-      const data = await res.json();
-      if (data.success) {
-        setMessage({ text: editingExam ? "Ujian berhasil diperbarui!" : "Ujian baru berhasil ditambahkan!", type: 'success' });
-        setIsModalOpen(false);
-        fetchExams();
-        setTimeout(() => setMessage(null), 4000);
-      } else {
-        setMessage({ text: data.message || "Gagal menyimpan ujian", type: 'error' });
-      }
+
+      setMessage({
+        text: editingExam ? "Ujian berhasil diperbarui!" : "Ujian baru berhasil disimpan ke Firestore & Server!",
+        type: 'success'
+      });
+      setIsModalOpen(false);
+      setTimeout(() => setMessage(null), 4000);
     } catch (err) {
       console.error(err);
-      setMessage({ text: "Terjadi kesalahan jaringan.", type: 'error' });
+      setMessage({ text: "Terjadi kesalahan saat menyimpan data ujian.", type: 'error' });
     } finally {
       setSaving(false);
     }
@@ -242,19 +366,22 @@ export default function App() {
 
   const handleDeleteExam = async (id: string) => {
     try {
-      const res = await fetch(`/api/exams/${id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        setMessage({ text: "Ujian berhasil dihapus.", type: 'success' });
-        setDeleteConfirmId(null);
-        fetchExams();
-        setTimeout(() => setMessage(null), 4000);
-      } else {
-        setMessage({ text: data.message || "Gagal menghapus", type: 'error' });
+      // 1. Delete from Firestore
+      try {
+        await deleteDoc(doc(db, 'exams', id));
+      } catch (fsErr) {
+        console.warn("Firestore deleteDoc:", fsErr);
       }
+
+      // 2. Delete from REST API
+      await fetch(`/api/exams/${id}`, { method: 'DELETE' });
+
+      setMessage({ text: "Ujian berhasil dihapus dari Firestore & Server.", type: 'success' });
+      setDeleteConfirmId(null);
+      setTimeout(() => setMessage(null), 4000);
     } catch (err) {
       console.error(err);
-      setMessage({ text: "Kesalahan jaringan saat menghapus.", type: 'error' });
+      setMessage({ text: "Kesalahan jaringan saat menghapus ujian.", type: 'error' });
     }
   };
 
@@ -323,24 +450,82 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       {/* Top Header */}
-      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex items-center justify-between gap-6 print:hidden">
+      <header className="border-b border-slate-800 bg-slate-900/60 backdrop-blur-md sticky top-0 z-30 px-6 py-4 flex flex-wrap items-center justify-between gap-4 print:hidden">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
             <Shield className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight text-white">EXAMCBT Admin</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold tracking-tight text-white">EXAMCBT Admin</h1>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                <Flame className="w-3 h-3 text-amber-400" />
+                Firebase Connected
+              </span>
+            </div>
             <p className="text-xs text-slate-400">Penyaluran Soal Google Form & 3 Jenis PIN untuk Aplikasi Client</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Firebase Real-Time Status */}
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs">
+            <span className={`w-2 h-2 rounded-full ${isFirebaseSyncActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+            <span className="text-slate-400 text-[11px]">
+              {isFirebaseSyncActive ? 'Firestore Realtime Aktif' : 'Firestore Standby'}
+            </span>
+          </div>
+
+          {/* User Auth Section */}
+          {currentUser ? (
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+              <div className="flex items-center gap-2">
+                {currentUser.photoURL ? (
+                  <img
+                    src={currentUser.photoURL}
+                    alt={currentUser.displayName || "Admin"}
+                    className="w-7 h-7 rounded-full border border-emerald-500/50"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-xs font-bold">
+                    <UserIcon className="w-4 h-4" />
+                  </div>
+                )}
+                <div className="hidden md:flex flex-col text-left">
+                  <span className="text-xs font-medium text-slate-200 leading-tight">
+                    {currentUser.displayName || currentUser.email?.split('@')[0]}
+                  </span>
+                  <span className="text-[10px] text-emerald-400 font-semibold leading-tight">
+                    {currentUser.email === 'iswanlabanto18@guru.sma.belajar.id' ? 'Super Admin' : 'Admin Ujian'}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                title="Keluar / Logout"
+                className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleLoginGoogle}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg border border-slate-700 transition-all"
+            >
+              <LogIn className="w-3.5 h-3.5 text-amber-400" />
+              <span>Login Google Admin</span>
+            </button>
+          )}
+
           <button
             onClick={handleOpenAddModal}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-all"
           >
             <Plus className="w-4 h-4" />
-            <span>Tambah Ujian Baru</span>
+            <span>Tambah Ujian</span>
           </button>
         </div>
       </header>

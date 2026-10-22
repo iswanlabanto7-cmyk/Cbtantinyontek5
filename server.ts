@@ -1,9 +1,12 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { GoogleGenAI } from "@google/genai";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.resolve(__dirname, "data");
+const DATA_FILE = path.resolve(DATA_DIR, "exams.json");
 
 interface ExamItem {
   id: string;
@@ -24,7 +27,7 @@ interface ExamItem {
 }
 
 // Initial default exams list with 4-digit PINs
-let examsList: ExamItem[] = [
+const defaultExams: ExamItem[] = [
   {
     id: "EXAM-2026-001",
     examTitle: "Ujian Akhir Semester (UAS) Ganjil",
@@ -61,6 +64,37 @@ let examsList: ExamItem[] = [
   }
 ];
 
+// Helper to load exams from disk
+function loadExams(): ExamItem[] {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.error("Gagal membaca file data ujian:", err);
+  }
+  return defaultExams;
+}
+
+// Helper to save exams to disk
+function saveExams(exams: ExamItem[]) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(DATA_FILE, JSON.stringify(exams, null, 2), "utf-8");
+  } catch (err) {
+    console.error("Gagal menyimpan file data ujian:", err);
+  }
+}
+
+// Load initial exams from disk
+let examsList: ExamItem[] = loadExams();
+
 const app = express();
 app.use(express.json());
 
@@ -93,6 +127,7 @@ apiRouter.post("/exams", (req, res) => {
     };
 
     examsList.unshift(newExam);
+    saveExams(examsList);
     res.json({ success: true, message: "Ujian berhasil ditambahkan", data: newExam });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message || "Gagal menambah ujian" });
@@ -114,6 +149,7 @@ apiRouter.put("/exams/:id", (req, res) => {
       updatedAt: new Date().toISOString(),
     };
 
+    saveExams(examsList);
     res.json({ success: true, message: "Ujian berhasil diperbarui", data: examsList[index] });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message || "Gagal memperbarui ujian" });
@@ -128,6 +164,7 @@ apiRouter.delete("/exams/:id", (req, res) => {
     if (examsList.length === initialLength) {
       return res.status(404).json({ success: false, message: "Ujian tidak ditemukan" });
     }
+    saveExams(examsList);
     res.json({ success: true, message: "Ujian berhasil dihapus" });
   } catch (error: any) {
     res.status(400).json({ success: false, message: error.message || "Gagal menghapus ujian" });

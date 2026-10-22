@@ -1,0 +1,125 @@
+{
+  "entities": {
+    "Exam": {
+      "title": "Exam",
+      "description": "Dokumen konfigurasi ujian, link Google Form, dan 3 PIN keamanan CBT",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Kode unik sesi ujian (contoh: EXAM-2026-001)",
+          "maxLength": 64
+        },
+        "examTitle": {
+          "type": "string",
+          "description": "Judul atau nama pelaksanaan ujian",
+          "maxLength": 200
+        },
+        "subject": {
+          "type": "string",
+          "description": "Mata pelajaran ujian",
+          "maxLength": 150
+        },
+        "googleFormUrl": {
+          "type": "string",
+          "description": "URL lengkap lembar soal Google Form",
+          "maxLength": 1000
+        },
+        "durationMinutes": {
+          "type": "number",
+          "description": "Durasi pengerjaan ujian dalam menit"
+        },
+        "pinMasuk": {
+          "type": "string",
+          "description": "PIN 4 digit untuk membuka soal",
+          "maxLength": 10
+        },
+        "pinKeluar": {
+          "type": "string",
+          "description": "PIN 4 digit untuk keluar dari fullscreen ujian",
+          "maxLength": 10
+        },
+        "pinPengawas": {
+          "type": "string",
+          "description": "PIN 4 digit untuk pengawas atau reset darurat",
+          "maxLength": 10
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Waktu mulai pelaksanaan ujian format ISO",
+          "maxLength": 50
+        },
+        "endTime": {
+          "type": "string",
+          "description": "Waktu selesai pelaksanaan ujian format ISO",
+          "maxLength": 50
+        },
+        "timezone": {
+          "type": "string",
+          "enum": ["WIB", "WITA", "WIT"],
+          "description": "Zona waktu pelaksanaan ujian"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "active", "closed"],
+          "description": "Status kesiapan ujian"
+        },
+        "allowedClasses": {
+          "type": "array",
+          "description": "Daftar kelas yang diizinkan mengikuti ujian"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Waktu pembuatan dokumen"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Waktu pembaruan terakhir dokumen"
+        }
+      },
+      "required": [
+        "id",
+        "examTitle",
+        "subject",
+        "googleFormUrl",
+        "durationMinutes",
+        "pinMasuk",
+        "pinKeluar",
+        "pinPengawas",
+        "status"
+      ]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Data administrator sistem EXAMCBT Admin",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Alamat email resmi administrator",
+          "maxLength": 150
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "superadmin"],
+          "description": "Tingkat hak akses administrator"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Waktu pendaftaran akun admin"
+        }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/exams/{examId}": {
+      "schema": "Exam",
+      "description": "Koleksi data sesi ujian, PIN keamanan, dan link Google Form"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Koleksi akun administrator sistem ujian"
+    }
+  }
+}

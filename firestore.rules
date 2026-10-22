@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        (
+          request.auth.token.email == 'iswanlabanto18@guru.sma.belajar.id' ||
+          exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        );
+    }
+
+    function isValidExam(data) {
+      return data.keys().hasAll([
+        'id',
+        'examTitle',
+        'subject',
+        'googleFormUrl',
+        'durationMinutes',
+        'pinMasuk',
+        'pinKeluar',
+        'pinPengawas',
+        'status'
+      ]) &&
+      data.keys().hasOnly([
+        'id',
+        'examTitle',
+        'subject',
+        'googleFormUrl',
+        'durationMinutes',
+        'pinMasuk',
+        'pinKeluar',
+        'pinPengawas',
+        'startTime',
+        'endTime',
+        'timezone',
+        'status',
+        'allowedClasses',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
+      data.examTitle is string && data.examTitle.size() > 0 && data.examTitle.size() <= 200 &&
+      data.subject is string && data.subject.size() > 0 && data.subject.size() <= 150 &&
+      data.googleFormUrl is string && data.googleFormUrl.size() > 0 && data.googleFormUrl.size() <= 1000 &&
+      data.durationMinutes is number && data.durationMinutes > 0 && data.durationMinutes <= 1440 &&
+      data.pinMasuk is string && data.pinMasuk.size() > 0 && data.pinMasuk.size() <= 10 &&
+      data.pinKeluar is string && data.pinKeluar.size() > 0 && data.pinKeluar.size() <= 10 &&
+      data.pinPengawas is string && data.pinPengawas.size() > 0 && data.pinPengawas.size() <= 10 &&
+      (data.status == 'draft' || data.status == 'active' || data.status == 'closed') &&
+      (!('startTime' in data) || (data.startTime is string && data.startTime.size() <= 50)) &&
+      (!('endTime' in data) || (data.endTime is string && data.endTime.size() <= 50)) &&
+      (!('timezone' in data) || (data.timezone in ['WIB', 'WITA', 'WIT'])) &&
+      (!('allowedClasses' in data) || (data.allowedClasses is list && data.allowedClasses.size() <= 50)) &&
+      (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
+      (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
+    }
+
+    function isValidAdmin(data) {
+      return data.keys().hasAll(['email', 'role']) &&
+        data.keys().hasOnly(['email', 'role', 'createdAt']) &&
+        data.email is string && data.email.size() > 0 && data.email.size() <= 150 &&
+        (data.role == 'admin' || data.role == 'superadmin') &&
+        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50));
+    }
+
+    // Rules for Exams
+    match /exams/{examId} {
+      allow get: if isVerifiedAdmin() || resource.data.status == 'active';
+      allow list: if isVerifiedAdmin() || (resource.data.status == 'active');
+
+      allow create: if isVerifiedAdmin() &&
+        isValidId(examId) &&
+        isValidExam(incoming()) &&
+        incoming().id == examId;
+
+      allow update: if isVerifiedAdmin() &&
+        isValidId(examId) &&
+        isValidExam(incoming()) &&
+        incoming().id == existing().id;
+
+      allow delete: if isVerifiedAdmin() && isValidId(examId);
+    }
+
+    // Rules for Admins
+    match /admins/{adminId} {
+      allow read: if isVerifiedAdmin() && isValidId(adminId);
+      allow create, update: if isVerifiedAdmin() &&
+        isValidId(adminId) &&
+        isValidAdmin(incoming());
+      allow delete: if isVerifiedAdmin() && isValidId(adminId);
+    }
+  }
+}
