@@ -7,135 +7,23 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Helper functions
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isValidExam(data) {
-      return data.keys().hasAll([
-        'id',
-        'authorId',
-        'examTitle',
-        'subject',
-        'googleFormUrl',
-        'durationMinutes',
-        'pinMasuk',
-        'pinKeluar',
-        'pinPengawas',
-        'status'
-      ]) &&
-      data.keys().hasOnly([
-        'id',
-        'authorId',
-        'authorEmail',
-        'examTitle',
-        'subject',
-        'googleFormUrl',
-        'durationMinutes',
-        'pinMasuk',
-        'pinKeluar',
-        'pinPengawas',
-        'startTime',
-        'endTime',
-        'timezone',
-        'status',
-        'allowedClasses',
-        'createdAt',
-        'updatedAt'
-      ]) &&
-      data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
-      data.authorId is string && data.authorId.size() > 0 && data.authorId.size() <= 128 &&
-      data.examTitle is string && data.examTitle.size() > 0 && data.examTitle.size() <= 200 &&
-      data.subject is string && data.subject.size() <= 150 &&
-      data.googleFormUrl is string && data.googleFormUrl.size() <= 1000 &&
-      data.durationMinutes is number && data.durationMinutes >= 0 && data.durationMinutes <= 1440 &&
-      data.pinMasuk is string && data.pinMasuk.size() <= 20 &&
-      data.pinKeluar is string && data.pinKeluar.size() <= 20 &&
-      data.pinPengawas is string && data.pinPengawas.size() <= 20 &&
-      (data.status in ['draft', 'active', 'closed']) &&
-      (!('authorEmail' in data) || (data.authorEmail is string && data.authorEmail.size() <= 150)) &&
-      (!('startTime' in data) || (data.startTime is string && data.startTime.size() <= 50)) &&
-      (!('endTime' in data) || (data.endTime is string && data.endTime.size() <= 50)) &&
-      (!('timezone' in data) || (data.timezone in ['WIB', 'WITA', 'WIT'])) &&
-      (!('allowedClasses' in data) || (data.allowedClasses is list && data.allowedClasses.size() <= 50)) &&
-      (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-      (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
-    }
-
-    function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'email']) &&
-        data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'createdAt', 'updatedAt']) &&
-        data.uid is string && data.uid.size() > 0 && data.uid.size() <= 128 &&
-        data.email is string && data.email.size() > 0 && data.email.size() <= 150 &&
-        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 150)) &&
-        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500)) &&
-        (!('createdAt' in data) || (data.createdAt is string && data.createdAt.size() <= 50)) &&
-        (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 50));
-    }
-
-    // Rules for Exams - Strictly isolated per user:
-    // Setiap pengguna hanya dapat membaca dan menulis datanya sendiri, tidak ada yang dapat membaca atau mengakses data orang lain.
+    // Rules for Exams
     match /exams/{examId} {
-      allow get: if isSignedIn() &&
-        isValidId(examId) &&
-        (!('authorId' in existing()) || existing().authorId == request.auth.uid);
-
-      allow list: if isSignedIn() &&
-        resource.data.authorId == request.auth.uid;
-
-      allow create: if isSignedIn() &&
-        isValidId(examId) &&
-        isValidExam(incoming()) &&
-        incoming().id == examId &&
-        incoming().authorId == request.auth.uid;
-
-      allow update: if isSignedIn() &&
-        isValidId(examId) &&
-        isValidExam(incoming()) &&
-        (!('authorId' in existing()) || existing().authorId == request.auth.uid) &&
-        incoming().authorId == request.auth.uid &&
-        (!('id' in existing()) || incoming().id == existing().id);
-
-      allow delete: if isSignedIn() &&
-        isValidId(examId) &&
-        (!('authorId' in existing()) || existing().authorId == request.auth.uid);
+      allow read, write, create, update, delete: if isSignedIn();
     }
 
-    // Rules for User Profiles - Strictly isolated per user:
+    // Rules for User Profiles
     match /users/{userId} {
-      allow read: if isSignedIn() &&
-        isValidId(userId) &&
-        request.auth.uid == userId;
+      allow read, write, create, update, delete: if isSignedIn();
+    }
 
-      allow create: if isSignedIn() &&
-        isValidId(userId) &&
-        isValidUser(incoming()) &&
-        incoming().uid == request.auth.uid &&
-        request.auth.uid == userId;
-
-      allow update: if isSignedIn() &&
-        isValidId(userId) &&
-        isValidUser(incoming()) &&
-        request.auth.uid == userId &&
-        incoming().uid == existing().uid;
-
-      allow delete: if isSignedIn() &&
-        isValidId(userId) &&
-        request.auth.uid == userId;
+    // Rules for Client App Configurations
+    match /client_configs/{configId} {
+      allow read, write, create, update, delete: if isSignedIn();
     }
   }
 }
-

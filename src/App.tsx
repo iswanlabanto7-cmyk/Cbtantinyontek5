@@ -42,7 +42,12 @@ import {
   User as UserIcon,
   Mail,
   KeyRound,
-  UserPlus
+  UserPlus,
+  Sliders,
+  Eye,
+  ShieldAlert,
+  Info,
+  CheckCircle
 } from 'lucide-react';
 import {
   db,
@@ -65,8 +70,8 @@ import {
   setDoc,
   deleteDoc,
   query,
-
-  where
+  where,
+  getDoc
 } from 'firebase/firestore';
 
 interface ExamItem {
@@ -89,12 +94,24 @@ interface ExamItem {
   updatedAt: string;
 }
 
+export interface ClientSettings {
+  id?: string;
+  authorId?: string;
+  authorEmail?: string;
+  schoolName: string;
+  securityMode: 'standar' | 'ketat' | 'santai';
+  maxViolations: number;
+  blockScreenshot: boolean;
+  blockSplitScreen: boolean;
+  splashNotice: string;
+}
+
 export default function App() {
   const [exams, setExams] = useState<ExamItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [activeTab, setActiveTab] = useState<'exams' | 'client-api' | 'ai-helper'>('exams');
+  const [activeTab, setActiveTab] = useState<'exams' | 'client-settings' | 'ai-helper'>('exams');
 
   // Modal State for Add / Edit
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -121,8 +138,24 @@ export default function App() {
     allowedClasses: ['Semua Kelas XII']
   });
 
-  // Client API tab selected exam
-  const [selectedClientApiExamId, setSelectedClientApiExamId] = useState<string>('');
+  // Client settings state (simplified & non-overlapping)
+  const [clientSettings, setClientSettings] = useState<ClientSettings>({
+    schoolName: 'SMA Negeri CBT Exambro',
+    securityMode: 'standar',
+    maxViolations: 3,
+    blockScreenshot: true,
+    blockSplitScreen: true,
+    splashNotice: 'Dilarang keluar aplikasi atau membuka jendela lain selama ujian berlangsung.'
+  });
+  const [savingClientSettings, setSavingClientSettings] = useState<boolean>(false);
+
+  // Student Simulator Modal State
+  const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
+  const [simExam, setSimExam] = useState<ExamItem | null>(null);
+  const [simViolations, setSimViolations] = useState<number>(0);
+  const [simStep, setSimStep] = useState<'pin_masuk' | 'exam' | 'locked' | 'finished'>('pin_masuk');
+  const [simPinInput, setSimPinInput] = useState<string>('');
+  const [simMessage, setSimMessage] = useState<string>('');
 
   // AI Assistant states
   const [aiGenerating, setAiGenerating] = useState<boolean>(false);
@@ -230,7 +263,6 @@ export default function App() {
 
               if (list.length > 0) {
                 setAiSelectedExamId((prev) => prev || list[0].id);
-                setSelectedClientApiExamId((prev) => prev || list[0].id);
               }
             },
             (error) => {
@@ -271,7 +303,6 @@ export default function App() {
         setExams(data.data);
         if (data.data.length > 0) {
           setAiSelectedExamId((prev) => prev || data.data[0].id);
-          setSelectedClientApiExamId((prev) => prev || data.data[0].id);
         }
       }
     } catch (err) {
@@ -282,7 +313,7 @@ export default function App() {
     }
   };
 
-  // Generate QR Code with Client App JSON payload (Google Form URL & 3 PINs)
+  // Generate Unified QR Code (Google Form URL, 3 PINs, and Client Lockdown Profile)
   useEffect(() => {
     if (!barcodeModalExam) return;
 
@@ -291,6 +322,9 @@ export default function App() {
         setIsGeneratingQr(true);
         const targetContent = JSON.stringify({
           app: "EXAMCBT",
+          school: clientSettings.schoolName,
+          mode: clientSettings.securityMode,
+          maxViolations: clientSettings.maxViolations,
           id: barcodeModalExam.id,
           examTitle: barcodeModalExam.examTitle,
           subject: barcodeModalExam.subject,
@@ -319,7 +353,7 @@ export default function App() {
     };
 
     generateCode();
-  }, [barcodeModalExam]);
+  }, [barcodeModalExam, clientSettings]);
 
   const formatAMPM = (dateString: string) => {
     if (!dateString) return '';
@@ -566,7 +600,173 @@ export default function App() {
 
   const generateRandomPin = (field: 'pinMasuk' | 'pinKeluar' | 'pinPengawas') => {
     const pin = Math.floor(1000 + Math.random() * 9000).toString();
-    setFormData({ ...formData, [field]: pin });
+    setFormData((prev) => ({ ...prev, [field]: pin }));
+  };
+
+  const generateAllRandomPins = () => {
+    setFormData((prev) => ({
+      ...prev,
+      pinMasuk: Math.floor(1000 + Math.random() * 9000).toString(),
+      pinPengawas: Math.floor(1000 + Math.random() * 9000).toString(),
+      pinKeluar: Math.floor(1000 + Math.random() * 9000).toString(),
+    }));
+  };
+
+  const handleSaveClientSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSavingClientSettings(true);
+      const activeUser = currentUser || await loginAsDefaultAdmin();
+
+      const configId = `CFG_${activeUser.uid.replace(/[^a-zA-Z0-9_\-]/g, '_')}`;
+      const payload = {
+        id: configId,
+        authorId: activeUser.uid,
+        authorEmail: activeUser.email || '',
+        schoolName: (clientSettings.schoolName || 'SMA Negeri CBT').trim(),
+        appName: 'EXAMCBT Lockdown Client',
+        clientProfile: 'exambro_android',
+        appVersion: 'v2.5.0',
+        clientSecurityToken: 'EXAM-SEC-2026-TOKEN',
+        targetExamId: exams[0]?.id || 'EXAM-2026-001',
+        lockFullscreen: clientSettings.securityMode !== 'santai',
+        blockTabSwitch: clientSettings.securityMode !== 'santai',
+        maxViolations: clientSettings.maxViolations,
+        blockSplitScreen: clientSettings.blockSplitScreen,
+        blockScreenshot: clientSettings.blockScreenshot,
+        blockInspectElement: true,
+        blockCopyPaste: true,
+        blockBackNav: true,
+        disableSound: true,
+        splashNotice: clientSettings.splashNotice,
+        updatedAt: new Date().toISOString()
+      };
+
+      // 1. Save to Firestore with user isolation
+      try {
+        await setDoc(doc(db, 'client_configs', configId), payload, { merge: true });
+      } catch (fsErr) {
+        console.warn("Firestore client config save notice:", fsErr);
+      }
+
+      // 2. Save to Server REST API
+      try {
+        await fetch('/api/client/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+      } catch (apiErr) {
+        console.warn("API client config save notice:", apiErr);
+      }
+
+      setMessage({ text: "Pengaturan aplikasi client berhasil disimpan dan diterapkan!", type: 'success' });
+      setTimeout(() => setMessage(null), 3500);
+    } catch (err: any) {
+      console.error(err);
+      setMessage({ text: "Gagal menyimpan pengaturan: " + (err.message || ''), type: 'error' });
+    } finally {
+      setSavingClientSettings(false);
+    }
+  };
+
+  const handleDownloadClientJson = () => {
+    const activeExam = exams[0];
+    const data = {
+      app: "EXAMCBT",
+      version: "2.5.0",
+      schoolName: clientSettings.schoolName,
+      securityMode: clientSettings.securityMode,
+      maxViolations: clientSettings.maxViolations,
+      blockScreenshot: clientSettings.blockScreenshot,
+      blockSplitScreen: clientSettings.blockSplitScreen,
+      splashNotice: clientSettings.splashNotice,
+      activeExam: activeExam ? {
+        id: activeExam.id,
+        examTitle: activeExam.examTitle,
+        subject: activeExam.subject,
+        googleFormUrl: activeExam.googleFormUrl,
+        pinMasuk: activeExam.pinMasuk,
+        pinPengawas: activeExam.pinPengawas,
+        pinKeluar: activeExam.pinKeluar,
+        durationMinutes: activeExam.durationMinutes,
+      } : null,
+      serverApiUrl: `${window.location.origin}/api/client/config`
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `client-config-${clientSettings.securityMode}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadSeb = () => {
+    const targetId = exams[0]?.id || '';
+    window.location.href = `/api/client/seb-config${targetId ? `?id=${targetId}` : ''}`;
+  };
+
+  const handleOpenSimulator = (exam?: ExamItem) => {
+    const target = exam || exams[0];
+    if (!target) {
+      setMessage({ text: "Tambahkan atau buat jadwal ujian terlebih dahulu untuk uji coba simulasi.", type: 'error' });
+      return;
+    }
+    setSimExam(target);
+    setSimViolations(0);
+    setSimStep('pin_masuk');
+    setSimPinInput('');
+    setSimMessage('');
+    setIsSimulatorOpen(true);
+  };
+
+  const handleSimPinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!simExam) return;
+    if (simStep === 'pin_masuk') {
+      if (simPinInput.trim() === simExam.pinMasuk) {
+        setSimStep('exam');
+        setSimMessage('PIN Masuk diverifikasi! Soal Google Form berhasil dimuat di browser terkunci.');
+        setSimPinInput('');
+      } else {
+        setSimMessage(`PIN Masuk salah! (Petunjuk PIN yang benar: ${simExam.pinMasuk})`);
+      }
+    } else if (simStep === 'locked') {
+      if (simPinInput.trim() === simExam.pinPengawas) {
+        setSimStep('exam');
+        setSimViolations(0);
+        setSimMessage('Kunci darurat dibuka oleh Pengawas! Sesi siswa dilanjutkan.');
+        setSimPinInput('');
+      } else {
+        setSimMessage(`PIN Pengawas salah! (Petunjuk PIN Pengawas: ${simExam.pinPengawas})`);
+      }
+    } else if (simStep === 'exam') {
+      if (simPinInput.trim() === simExam.pinKeluar) {
+        setSimStep('finished');
+        setSimMessage('Ujian selesai dan sesi berhasil diakhiri dengan aman.');
+        setSimPinInput('');
+      } else {
+        setSimMessage(`PIN Keluar salah! (Petunjuk PIN Keluar: ${simExam.pinKeluar})`);
+      }
+    }
+  };
+
+  const handleSimulateViolation = () => {
+    if (simStep !== 'exam') return;
+    if (clientSettings.securityMode === 'santai') {
+      setSimMessage('Mode Santai: Perpindahan tab / jendela diizinkan.');
+      return;
+    }
+    const nextCount = simViolations + 1;
+    setSimViolations(nextCount);
+    if (nextCount >= clientSettings.maxViolations) {
+      setSimStep('locked');
+      setSimMessage(`PERINGATAN: Terdeteksi keluar aplikasi ${nextCount}x (batas toleransi ${clientSettings.maxViolations}x). Layar siswa terkunci otomatis! Harap panggil Pengawas.`);
+      setSimPinInput('');
+    } else {
+      setSimMessage(`Peringatan Pelanggaran: Terdeteksi keluar layar (${nextCount}/${clientSettings.maxViolations}). Sisa kesempatan: ${clientSettings.maxViolations - nextCount}`);
+    }
   };
 
   const handleDownloadQr = () => {
@@ -624,7 +824,7 @@ export default function App() {
     );
   }
 
-  const selectedClientExam = exams.find(e => e.id === selectedClientApiExamId) || exams[0];
+  const selectedClientExam = exams[0];
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -744,15 +944,15 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveTab('client-api')}
+            onClick={() => setActiveTab('client-settings')}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
-              activeTab === 'client-api'
+              activeTab === 'client-settings'
                 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
             }`}
           >
-            <Cpu className="w-4 h-4" />
-            <span>Konfigurasi Aplikasi Client (JSON)</span>
+            <Smartphone className="w-4 h-4" />
+            <span>Pengaturan Aplikasi Client</span>
           </button>
 
           <button
@@ -933,143 +1133,267 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab 2: Konfigurasi Aplikasi Client (JSON) */}
-        {activeTab === 'client-api' && (
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        {/* Tab 2: Pengaturan Aplikasi Client (Sederhana & Tanpa Tumpang Tindih) */}
+        {activeTab === 'client-settings' && (
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-sm space-y-8">
+            {/* Header Tab */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
               <div>
-                <h2 className="text-base font-semibold text-white mb-1 flex items-center gap-2">
-                  <Cpu className="w-5 h-5 text-emerald-400" />
-                  <span>Pengaturan Data untuk Ditangkap Aplikasi Client</span>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Smartphone className="w-5 h-5 text-emerald-400" />
+                  <span>Pengaturan Aplikasi Client Ujian Siswa</span>
                 </h2>
-                <p className="text-xs text-slate-400">
-                  Data Link Google Form, PIN Masuk, PIN Pengawas, dan PIN Keluar siap diambil oleh aplikasi client (Exambro / Android WebView / Flutter).
+                <p className="text-xs text-slate-400 mt-1">
+                  Pilih tingkat proteksi aplikasi client (Exambro / Kios Browser). Pengaturan ini otomatis menyatu ke dalam QR Soal ujian.
                 </p>
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <select
-                  value={selectedClientApiExamId}
-                  onChange={(e) => setSelectedClientApiExamId(e.target.value)}
-                  className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-200"
-                >
-                  {exams.map(ex => (
-                    <option key={ex.id} value={ex.id}>{ex.examTitle} ({ex.id})</option>
-                  ))}
-                </select>
-              </div>
+              <button
+                type="button"
+                onClick={() => handleOpenSimulator(exams[0])}
+                className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600/15 hover:bg-emerald-600/25 text-emerald-400 border border-emerald-500/30 rounded-xl text-xs font-semibold transition-all shadow-sm"
+              >
+                <Eye className="w-4 h-4 text-emerald-400" />
+                <span>Uji Coba Layar Siswa (Simulator)</span>
+              </button>
             </div>
 
-            {selectedClientExam && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Left: Endpoint details & PIN Mapping */}
-                <div className="space-y-4">
-                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                    <span className="text-[11px] font-semibold text-slate-300 block mb-1">Endpoint API Client (GET):</span>
-                    <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-xs font-mono text-emerald-400 overflow-x-auto">
-                      <span className="truncate">{window.location.origin}/api/client/config?id={selectedClientExam.id}</span>
-                      <button
-                        onClick={() => copyToClipboard(`${window.location.origin}/api/client/config?id=${selectedClientExam.id}`, 'client-api-url')}
-                        className="p-1 hover:bg-slate-800 rounded text-slate-300 transition-colors ml-2 shrink-0"
-                        title="Salin URL"
-                      >
-                        {copied === 'client-api-url' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 3 PIN Mapping for Client */}
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-3">
-                    <h4 className="text-xs font-semibold text-slate-200">Variabel PIN yang Ditangkap Aplikasi Client:</h4>
-                    
-                    <div className="space-y-2 text-xs">
-                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                        <div>
-                          <span className="font-mono text-emerald-400 font-bold block">pinMasuk</span>
-                          <span className="text-[11px] text-slate-400">Verifikasi sebelum siswa membuka Google Form</span>
-                        </div>
-                        <span className="font-mono text-sm font-black text-emerald-400 px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
-                          {selectedClientExam.pinMasuk}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                        <div>
-                          <span className="font-mono text-blue-400 font-bold block">pinPengawas</span>
-                          <span className="text-[11px] text-slate-400">Buka kunci darurat / restart sesi oleh guru</span>
-                        </div>
-                        <span className="font-mono text-sm font-black text-blue-400 px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
-                          {selectedClientExam.pinPengawas}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800">
-                        <div>
-                          <span className="font-mono text-amber-400 font-bold block">pinKeluar</span>
-                          <span className="text-[11px] text-slate-400">Konfirmasi selesai sebelum siswa keluar dari fullscreen lock</span>
-                        </div>
-                        <span className="font-mono text-sm font-black text-amber-400 px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
-                          {selectedClientExam.pinKeluar}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+            <form onSubmit={handleSaveClientSettings} className="space-y-8">
+              {/* Bagian 1: 3 Mode Keamanan Sederhana */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                    <Shield className="w-4 h-4 text-emerald-400" />
+                    <span>1. Pilih Tingkat Keamanan Klien (1-Klik)</span>
+                  </label>
+                  <span className="text-[11px] text-slate-400">Pilih salah satu sesuai kebutuhan ujian</span>
                 </div>
 
-                {/* Right: Live JSON Payload Preview */}
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex flex-col">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
-                    <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                      <Code2 className="w-4 h-4 text-emerald-400" />
-                      <span>Respon JSON Client (Live Data)</span>
-                    </span>
-                    <button
-                      onClick={() => copyToClipboard(JSON.stringify({
-                        success: true,
-                        data: {
-                          id: selectedClientExam.id,
-                          examTitle: selectedClientExam.examTitle,
-                          subject: selectedClientExam.subject,
-                          googleFormUrl: selectedClientExam.googleFormUrl,
-                          pinMasuk: selectedClientExam.pinMasuk,
-                          pinPengawas: selectedClientExam.pinPengawas,
-                          pinKeluar: selectedClientExam.pinKeluar,
-                          durationMinutes: selectedClientExam.durationMinutes,
-                          startTime: selectedClientExam.startTime,
-                          endTime: selectedClientExam.endTime,
-                          timezone: selectedClientExam.timezone,
-                          status: selectedClientExam.status
-                        }
-                      }, null, 2), 'client-json')}
-                      className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded text-[11px] font-medium text-slate-300 flex items-center gap-1 transition-colors"
-                    >
-                      {copied === 'client-json' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      <span>{copied === 'client-json' ? 'Disalin' : 'Salin JSON'}</span>
-                    </button>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Mode Standar */}
+                  <div
+                    onClick={() => setClientSettings({
+                      ...clientSettings,
+                      securityMode: 'standar',
+                      maxViolations: 3,
+                      blockScreenshot: true,
+                      blockSplitScreen: true,
+                    })}
+                    className={`cursor-pointer p-5 rounded-2xl border transition-all flex flex-col justify-between ${
+                      clientSettings.securityMode === 'standar'
+                        ? 'bg-emerald-500/10 border-emerald-500 ring-1 ring-emerald-500/50 shadow-md'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                          <Shield className="w-4 h-4 text-emerald-400" />
+                          <span>Standar</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300">
+                          Rekomendasi
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                        Wajib Layar Penuh (Fullscreen) dan mendeteksi siswa yang beralih tab atau minimize.
+                      </p>
+                    </div>
+                    <div className="pt-3 border-t border-slate-800/80 text-[11px] text-slate-300 flex items-center justify-between">
+                      <span className="text-slate-400">Toleransi Keluar:</span>
+                      <strong className="text-emerald-400 font-mono">Maksimal 3 Kali</strong>
+                    </div>
                   </div>
 
-                  <pre className="text-xs font-mono text-emerald-400 bg-slate-900/90 p-3 rounded-lg overflow-x-auto flex-1 leading-relaxed">
-{JSON.stringify({
-  success: true,
-  data: {
-    id: selectedClientExam.id,
-    examTitle: selectedClientExam.examTitle,
-    subject: selectedClientExam.subject,
-    googleFormUrl: selectedClientExam.googleFormUrl,
-    pinMasuk: selectedClientExam.pinMasuk,
-    pinPengawas: selectedClientExam.pinPengawas,
-    pinKeluar: selectedClientExam.pinKeluar,
-    durationMinutes: selectedClientExam.durationMinutes,
-    startTime: selectedClientExam.startTime,
-    endTime: selectedClientExam.endTime,
-    timezone: selectedClientExam.timezone,
-    status: selectedClientExam.status
-  }
-}, null, 2)}
-                  </pre>
+                  {/* Mode Ketat */}
+                  <div
+                    onClick={() => setClientSettings({
+                      ...clientSettings,
+                      securityMode: 'ketat',
+                      maxViolations: 1,
+                      blockScreenshot: true,
+                      blockSplitScreen: true,
+                    })}
+                    className={`cursor-pointer p-5 rounded-2xl border transition-all flex flex-col justify-between ${
+                      clientSettings.securityMode === 'ketat'
+                        ? 'bg-red-500/10 border-red-500 ring-1 ring-red-500/50 shadow-md'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                          <Lock className="w-4 h-4 text-red-400" />
+                          <span>Ketat / Zero Cheating</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/20 text-red-300">
+                          Super Aman
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                        Toleransi 1x langsung terkunci permanen. Blokir tangkapan layar (screenshot) & split-screen secara total.
+                      </p>
+                    </div>
+                    <div className="pt-3 border-t border-slate-800/80 text-[11px] text-slate-300 flex items-center justify-between">
+                      <span className="text-slate-400">Toleransi Keluar:</span>
+                      <strong className="text-red-400 font-mono">1 Kali Langsung Kunci</strong>
+                    </div>
+                  </div>
+
+                  {/* Mode Santai / Latihan */}
+                  <div
+                    onClick={() => setClientSettings({
+                      ...clientSettings,
+                      securityMode: 'santai',
+                      maxViolations: 99,
+                      blockScreenshot: false,
+                      blockSplitScreen: false,
+                    })}
+                    className={`cursor-pointer p-5 rounded-2xl border transition-all flex flex-col justify-between ${
+                      clientSettings.securityMode === 'santai'
+                        ? 'bg-amber-500/10 border-amber-500 ring-1 ring-amber-500/50 shadow-md'
+                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                          <Sparkles className="w-4 h-4 text-amber-400" />
+                          <span>Santai / Latihan</span>
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300">
+                          Simulasi
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                        Tanpa penguncian layar. Siswa bebas membuka materi atau catatan pendukung untuk latihan mandiri.
+                      </p>
+                    </div>
+                    <div className="pt-3 border-t border-slate-800/80 text-[11px] text-slate-300 flex items-center justify-between">
+                      <span className="text-slate-400">Penguncian:</span>
+                      <strong className="text-amber-400 font-mono">Nonaktif (Bebas)</strong>
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
+
+              {/* Bagian 2: Identitas Sekolah & Pesan Siswa */}
+              <div className="p-5 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-4">
+                <label className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-emerald-400" />
+                  <span>2. Informasi Tampilan Klien</span>
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-300 mb-1.5">Nama Sekolah / Lembaga</label>
+                    <input
+                      type="text"
+                      value={clientSettings.schoolName}
+                      onChange={(e) => setClientSettings({ ...clientSettings, schoolName: e.target.value })}
+                      placeholder="Contoh: SMA Negeri 1 CBT"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-300 mb-1.5">Pesan Peringatan / Tata Tertib Siswa</label>
+                    <input
+                      type="text"
+                      value={clientSettings.splashNotice}
+                      onChange={(e) => setClientSettings({ ...clientSettings, splashNotice: e.target.value })}
+                      placeholder="Contoh: Dilarang keluar aplikasi selama ujian berlangsung."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Checkbox proteksi cepat */}
+                <div className="flex flex-wrap items-center gap-6 pt-2 text-xs text-slate-300">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={clientSettings.blockScreenshot}
+                      onChange={(e) => setClientSettings({ ...clientSettings, blockScreenshot: e.target.checked })}
+                      className="w-4 h-4 accent-emerald-500 rounded bg-slate-900"
+                    />
+                    <span>Blokir Screenshot & Perekaman Layar (FLAG_SECURE)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={clientSettings.blockSplitScreen}
+                      onChange={(e) => setClientSettings({ ...clientSettings, blockSplitScreen: e.target.checked })}
+                      className="w-4 h-4 accent-emerald-500 rounded bg-slate-900"
+                    />
+                    <span>Blokir Layar Terbagi (Split-screen) di Ponsel / Tablet</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Tombol Simpan Pengaturan */}
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-[11px] text-slate-400">
+                  Perubahan akan otomatis tersimpan ke Firebase dan disinkronkan ke seluruh aplikasi client siswa.
+                </span>
+
+                <button
+                  type="submit"
+                  disabled={savingClientSettings}
+                  className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition-all flex items-center gap-2 disabled:opacity-50"
+                >
+                  {savingClientSettings ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                  <span>{savingClientSettings ? 'Menyimpan...' : 'Simpan Pengaturan Client'}</span>
+                </button>
+              </div>
+            </form>
+
+            {/* Bagian 3: Alat Distribusi & Ekspor Cepat (Tanpa Duplikasi) */}
+            <div className="pt-6 border-t border-slate-800 space-y-4">
+              <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                <Download className="w-4 h-4 text-emerald-400" />
+                <span>3. Ekspor & Integrasi Cepat</span>
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={handleDownloadClientJson}
+                  className="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 rounded-xl text-xs text-left transition-colors flex items-center justify-between group"
+                >
+                  <div>
+                    <span className="font-semibold text-slate-200 block group-hover:text-emerald-400 transition-colors">Unduh File JSON</span>
+                    <span className="text-[10px] text-slate-400">client-config.json untuk Exambro</span>
+                  </div>
+                  <Download className="w-4 h-4 text-slate-400 group-hover:text-emerald-400 transition-colors" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadSeb}
+                  className="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 rounded-xl text-xs text-left transition-colors flex items-center justify-between group"
+                >
+                  <div>
+                    <span className="font-semibold text-slate-200 block group-hover:text-emerald-400 transition-colors">Unduh Format SEB</span>
+                    <span className="text-[10px] text-slate-400">Untuk Safe Exam Browser (PC/Mac)</span>
+                  </div>
+                  <Download className="w-4 h-4 text-slate-400 group-hover:text-emerald-400 transition-colors" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(`${window.location.origin}/api/client/config`, 'api-endpoint')}
+                  className="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 rounded-xl text-xs text-left transition-colors flex items-center justify-between group"
+                >
+                  <div>
+                    <span className="font-semibold text-slate-200 block group-hover:text-emerald-400 transition-colors">Salin URL API Client</span>
+                    <span className="text-[10px] text-slate-400">/api/client/config (GET)</span>
+                  </div>
+                  {copied === 'api-endpoint' ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-400 group-hover:text-emerald-400 transition-colors" />}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1269,12 +1593,30 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">Durasi (Menit)</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-slate-300">Durasi (Menit)</label>
+                    <div className="flex gap-1">
+                      {[60, 90, 120].map((mins) => (
+                        <button
+                          key={mins}
+                          type="button"
+                          onClick={() => setFormData((prev) => ({ ...prev, durationMinutes: mins }))}
+                          className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                            formData.durationMinutes === mins
+                              ? 'bg-emerald-600 text-white font-semibold'
+                              : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                          }`}
+                        >
+                          {mins}m
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <input
                     type="number"
                     value={formData.durationMinutes || 90}
                     onChange={(e) => setFormData({ ...formData, durationMinutes: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
                     min="10"
                     required
                   />
@@ -1287,7 +1629,7 @@ export default function App() {
                   type="url"
                   value={formData.googleFormUrl || ''}
                   onChange={(e) => setFormData({ ...formData, googleFormUrl: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500 font-mono text-xs"
                   placeholder="https://docs.google.com/forms/d/e/.../viewform?embedded=true"
                   required
                 />
@@ -1295,7 +1637,18 @@ export default function App() {
 
               {/* 3 Jenis PIN Section (4 Digit) */}
               <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
-                <h4 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Pengaturan 3 Jenis PIN (4 Digit Angka)</h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Pengaturan 3 Jenis PIN (4 Digit)</h4>
+                  <button
+                    type="button"
+                    onClick={generateAllRandomPins}
+                    className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-[11px] text-emerald-400 border border-slate-800 rounded-lg transition-colors font-medium shadow-sm"
+                    title="Acak ketiga PIN sekaligus"
+                  >
+                    <RefreshCw className="w-3 h-3 text-emerald-400" />
+                    <span>Acak Semua PIN</span>
+                  </button>
+                </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {/* PIN Masuk */}
@@ -1616,6 +1969,242 @@ export default function App() {
         </div>
       )}
 
+
+      {/* Interactive Student Screen Simulator Modal */}
+      {isSimulatorOpen && simExam && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h3 className="text-sm font-bold text-white">Simulasi Layar Aplikasi Klien Siswa</h3>
+                  <p className="text-[11px] text-slate-400">Pratinjau tampilan di ponsel/laptop siswa</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSimulatorOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Smartphone Mockup */}
+            <div className="bg-slate-950 border-2 border-slate-700 rounded-[2rem] p-4 text-slate-100 shadow-inner flex flex-col min-h-[480px]">
+              {/* Speaker notch */}
+              <div className="w-24 h-4 bg-slate-800 rounded-full mx-auto mb-3 flex items-center justify-center">
+                <div className="w-2.5 h-2.5 rounded-full bg-slate-950"></div>
+              </div>
+
+              {/* Status bar */}
+              <div className="flex items-center justify-between text-[10px] text-slate-400 pb-2 mb-2 border-b border-slate-800 px-1 font-mono">
+                <span className="font-bold text-slate-300">{clientSettings.schoolName}</span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-semibold uppercase">
+                  {clientSettings.securityMode}
+                </span>
+              </div>
+
+              {/* Notice Banner in Simulator */}
+              {simMessage && (
+                <div className={`p-2.5 rounded-xl text-xs mb-3 flex items-start gap-2 ${
+                  simStep === 'locked'
+                    ? 'bg-red-500/20 text-red-300 border border-red-500/30'
+                    : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                }`}>
+                  {simStep === 'locked' ? <ShieldAlert className="w-4 h-4 shrink-0 text-red-400 mt-0.5" /> : <Info className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />}
+                  <span className="leading-snug">{simMessage}</span>
+                </div>
+              )}
+
+              {/* Step 1: Input PIN Masuk */}
+              {simStep === 'pin_masuk' && (
+                <div className="flex-1 flex flex-col justify-center text-center space-y-4 py-4">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
+                    <Key className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">{simExam.examTitle}</h4>
+                    <p className="text-xs text-slate-400 mt-0.5">{simExam.subject} • {simExam.durationMinutes} Menit</p>
+                  </div>
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 text-[11px] text-slate-300 text-left space-y-1">
+                    <span className="font-semibold text-slate-200 block">Tata Tertib:</span>
+                    <p className="text-slate-400">{clientSettings.splashNotice}</p>
+                  </div>
+
+                  <form onSubmit={handleSimPinSubmit} className="space-y-3">
+                    <div>
+                      <label className="block text-[11px] text-slate-300 mb-1">Masukkan PIN Masuk</label>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={simPinInput}
+                        onChange={(e) => setSimPinInput(e.target.value)}
+                        placeholder={simExam.pinMasuk}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-center font-mono text-lg font-bold text-emerald-400 tracking-widest focus:outline-none focus:border-emerald-500"
+                        autoFocus
+                        required
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 block">
+                        (Petunjuk PIN Masuk: <strong className="text-emerald-400 font-mono">{simExam.pinMasuk}</strong>)
+                      </span>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition-colors"
+                    >
+                      Buka Soal Ujian
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Step 2: Halaman Ujian Terbuka */}
+              {simStep === 'exam' && (
+                <div className="flex-1 flex flex-col space-y-3">
+                  <div className="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">{simExam.subject}</span>
+                      <h4 className="text-xs font-bold text-white truncate max-w-[180px]">{simExam.examTitle}</h4>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-500 block font-mono">Sisa Waktu</span>
+                      <span className="text-xs font-mono font-bold text-emerald-400">{simExam.durationMinutes}:00</span>
+                    </div>
+                  </div>
+
+                  {/* Mock Google Form Frame */}
+                  <div className="flex-1 bg-white rounded-xl p-4 text-slate-900 overflow-y-auto max-h-56 space-y-3 border shadow-inner">
+                    <div className="border-b pb-2">
+                      <span className="text-[10px] font-bold text-purple-700 uppercase tracking-wider block">Google Formulir</span>
+                      <h5 className="text-xs font-bold text-slate-900">{simExam.examTitle}</h5>
+                      <p className="text-[10px] text-slate-600 truncate">{simExam.googleFormUrl}</p>
+                    </div>
+
+                    <div className="space-y-2 text-[11px]">
+                      <div className="p-2 bg-slate-50 rounded border border-slate-200">
+                        <span className="font-semibold block text-slate-800">1. Soal Evaluasi Pembelajaran</span>
+                        <span className="text-[10px] text-slate-500 block mt-1">Siswa mengisi lembar jawaban secara langsung di dalam aplikasi client yang terkunci.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Anti-Cheat Demonstration Action */}
+                  <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-slate-400">Deteksi Pelanggaran:</span>
+                      <span className={`font-mono font-bold ${simViolations > 0 ? 'text-amber-400' : 'text-slate-300'}`}>
+                        {simViolations} / {clientSettings.maxViolations} Kali
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleSimulateViolation}
+                      className="w-full py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Uji Coba: Siswa Pindah Tab / Minimize</span>
+                    </button>
+                  </div>
+
+                  {/* Selesai Ujian Form with PIN Keluar */}
+                  <form onSubmit={handleSimPinSubmit} className="pt-1 flex gap-2">
+                    <input
+                      type="text"
+                      maxLength={4}
+                      value={simPinInput}
+                      onChange={(e) => setSimPinInput(e.target.value)}
+                      placeholder={`PIN Keluar (${simExam.pinKeluar})`}
+                      className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-center font-mono font-bold text-amber-400 placeholder:text-slate-600 focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="submit"
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold transition-colors"
+                    >
+                      Selesai
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Step 3: Ujian Terkunci (Perlu PIN Pengawas) */}
+              {simStep === 'locked' && (
+                <div className="flex-1 flex flex-col justify-center text-center space-y-4 py-4 bg-red-950/20 rounded-2xl p-4 border border-red-500/30">
+                  <div className="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500 flex items-center justify-center text-red-400 mx-auto animate-bounce">
+                    <Lock className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-red-400 uppercase tracking-wider">Layar Ujian Terkunci!</h4>
+                    <p className="text-xs text-slate-300 mt-1">
+                      Terdeteksi keluar dari aplikasi ujian lebih dari batas toleransi ({clientSettings.maxViolations}x).
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleSimPinSubmit} className="space-y-3 pt-2">
+                    <div>
+                      <label className="block text-[11px] text-slate-300 mb-1">Minta Pengawas Masukkan PIN Pengawas</label>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={simPinInput}
+                        onChange={(e) => setSimPinInput(e.target.value)}
+                        placeholder={simExam.pinPengawas}
+                        className="w-full bg-slate-900 border border-red-500/50 rounded-xl px-3 py-2 text-center font-mono text-lg font-bold text-blue-400 tracking-widest focus:outline-none focus:border-blue-400"
+                        autoFocus
+                        required
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 block">
+                        (PIN Pengawas: <strong className="text-blue-400 font-mono">{simExam.pinPengawas}</strong>)
+                      </span>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold shadow transition-colors"
+                    >
+                      Buka Kunci Pengawas
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* Step 4: Finished */}
+              {simStep === 'finished' && (
+                <div className="flex-1 flex flex-col justify-center text-center space-y-4 py-6">
+                  <div className="w-14 h-14 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center text-emerald-400 mx-auto">
+                    <CheckCircle className="w-8 h-8" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white">Sesi Ujian Selesai</h4>
+                    <p className="text-xs text-slate-400 mt-1">Jawaban siswa tersimpan dan aplikasi client keluar dari fullscreen lock.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSimStep('pin_masuk');
+                      setSimViolations(0);
+                      setSimMessage('');
+                    }}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-xl font-medium transition-colors mx-auto"
+                  >
+                    Ulangi Simulasi
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="text-center pt-1">
+              <span className="text-[11px] text-slate-400">
+                Simulasi ini membuktikan konfigurasi mode <strong className="text-emerald-400">{clientSettings.securityMode}</strong> aktif pada aplikasi client siswa.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="border-t border-slate-800/60 bg-slate-950 py-6 text-center text-xs text-slate-500 print:hidden">

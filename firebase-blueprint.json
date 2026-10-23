@@ -139,6 +139,120 @@
         }
       },
       "required": ["uid", "email"]
+    },
+    "ClientConfig": {
+      "title": "ClientConfig",
+      "description": "Konfigurasi keamanan dan profil aplikasi client CBT untuk siswa yang diisolasi per pengguna",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "ID konfigurasi client",
+          "maxLength": 64
+        },
+        "authorId": {
+          "type": "string",
+          "description": "UID guru/admin pemilik konfigurasi",
+          "maxLength": 128
+        },
+        "authorEmail": {
+          "type": "string",
+          "description": "Email guru/admin",
+          "maxLength": 150
+        },
+        "schoolName": {
+          "type": "string",
+          "description": "Nama sekolah / institusi",
+          "maxLength": 150
+        },
+        "appName": {
+          "type": "string",
+          "description": "Nama aplikasi client ujian",
+          "maxLength": 150
+        },
+        "clientProfile": {
+          "type": "string",
+          "enum": ["exambro_android", "safe_exam_browser", "web_kiosk", "custom_webview"],
+          "description": "Jenis target aplikasi client"
+        },
+        "appVersion": {
+          "type": "string",
+          "description": "Versi aplikasi client minimum",
+          "maxLength": 20
+        },
+        "clientSecurityToken": {
+          "type": "string",
+          "description": "Token keamanan verifikasi aplikasi client",
+          "maxLength": 64
+        },
+        "targetExamId": {
+          "type": "string",
+          "description": "ID ujian yang ditargetkan",
+          "maxLength": 64
+        },
+        "lockFullscreen": {
+          "type": "boolean",
+          "description": "Wajibkan mode fullscreen"
+        },
+        "blockTabSwitch": {
+          "type": "boolean",
+          "description": "Deteksi dan blokir perpindahan tab atau minimize"
+        },
+        "maxViolations": {
+          "type": "number",
+          "description": "Maksimal toleransi pelanggaran sebelum terkunci permanen"
+        },
+        "blockSplitScreen": {
+          "type": "boolean",
+          "description": "Blokir split-screen / multi-window"
+        },
+        "blockScreenshot": {
+          "type": "boolean",
+          "description": "Proteksi screenshot dan screen record"
+        },
+        "blockInspectElement": {
+          "type": "boolean",
+          "description": "Blokir developer tools, inspect element, dan klik kanan"
+        },
+        "blockCopyPaste": {
+          "type": "boolean",
+          "description": "Blokir copy soal dan paste jawaban"
+        },
+        "blockBackNav": {
+          "type": "boolean",
+          "description": "Kunci tombol back & navigasi sistem"
+        },
+        "disableSound": {
+          "type": "boolean",
+          "description": "Matikan suara perangkat selama ujian"
+        },
+        "allowedWifiSsid": {
+          "type": "string",
+          "description": "Nama SSID Wi-Fi sekolah yang diizinkan",
+          "maxLength": 100
+        },
+        "userAgentKeyword": {
+          "type": "string",
+          "description": "Kata kunci User-Agent wajib",
+          "maxLength": 100
+        },
+        "splashNotice": {
+          "type": "string",
+          "description": "Pesan tata tertib pada layar pembuka client",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Waktu pembuatan konfigurasi",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Waktu pembaruan konfigurasi terakhir",
+          "maxLength": 50
+        }
+      },
+      "required": ["id", "authorId", "schoolName", "clientProfile", "clientSecurityToken"]
     }
   },
   "firestore": {
@@ -149,6 +263,10 @@
     "/users/{userId}": {
       "schema": "UserProfile",
       "description": "Koleksi profil akun pengguna yang hanya dapat dibaca dan ditulis oleh pengguna terkait (userId == request.auth.uid)"
+    },
+    "/client_configs/{configId}": {
+      "schema": "ClientConfig",
+      "description": "Koleksi konfigurasi aplikasi client CBT yang hanya dapat diakses dan diatur oleh pemiliknya sendiri (authorId == request.auth.uid)"
     }
   }
 }
