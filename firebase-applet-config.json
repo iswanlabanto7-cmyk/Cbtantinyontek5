@@ -1,10 +1,8 @@
 {
-  "projectId": "gen-lang-client-0033732795",
-  "appId": "1:43846550676:web:b9bf5937cb20a11aee2081",
-  apiKey: "AIzaSyA04d0fnQcS5uhq1GoEujfO2Sta_BKkrd0",
-  authDomain: "admin-ujian.firebaseapp.com",
-  projectId: "admin-ujian",
-  storageBucket: "admin-ujian.firebasestorage.app",
-  messagingSenderId: "152520526486",
-  appId: "1:152520526486:web:f67a5406bbde06ca9bd0b7"
+  "projectId": "admin-ujian",
+  "apiKey": "AIzaSyA04d0fnQcS5uhq1GoEujfO2Sta_BKkrd0",
+  "authDomain": "admin-ujian.firebaseapp.com",
+  "storageBucket": "admin-ujian.firebasestorage.app",
+  "messagingSenderId": "152520526486",
+  "appId": "1:152520526486:web:f67a5406bbde06ca9bd0b7"
 }

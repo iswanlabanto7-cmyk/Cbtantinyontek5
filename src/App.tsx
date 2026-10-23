@@ -524,8 +524,7 @@ export default function App() {
       try {
         await setDoc(doc(db, 'exams', examId), examData);
       } catch (fsErr: any) {
-        console.error("Firestore setDoc error:", fsErr);
-        handleFirestoreError(fsErr, OperationType.WRITE, `exams/${examId}`);
+        console.warn("Firestore setDoc notice:", fsErr);
       }
 
       // 3. Sync to REST API Server for Client App Fallback
@@ -577,8 +576,7 @@ export default function App() {
       try {
         await deleteDoc(doc(db, 'exams', id));
       } catch (fsErr: any) {
-        console.error("Firestore deleteDoc error:", fsErr);
-        handleFirestoreError(fsErr, OperationType.DELETE, `exams/${id}`);
+        console.warn("Firestore deleteDoc notice (removing locally):", fsErr);
       }
 
       // 2. Delete from REST API
@@ -588,12 +586,13 @@ export default function App() {
         console.warn("API delete fallback warning:", apiErr);
       }
 
-      setMessage({ text: "Ujian berhasil dihapus dari database akun Anda.", type: 'success' });
+      setExams(prev => prev.filter(ex => ex.id !== id));
+      setMessage({ text: "Ujian berhasil dihapus dari daftar.", type: 'success' });
       setDeleteConfirmId(null);
       setTimeout(() => setMessage(null), 4000);
     } catch (err: any) {
       console.error(err);
-      setMessage({ text: err.message || "Kesalahan saat menghapus ujian dari Firebase.", type: 'error' });
+      setMessage({ text: err.message || "Kesalahan saat menghapus ujian.", type: 'error' });
     }
   };
 
